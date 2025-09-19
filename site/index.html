@@ -347,48 +347,106 @@ function nknEnsureClient(){
       const id  = msg && msg.id;
 
       // streaming path
-      if (/^relay\.response\.(begin|chunk|end|keepalive)$/.test(ev) && id) {
-        const ctx = S.nkn.streams.get(id);
-        if (!ctx) return;
+    if (/^relay\.response\.(begin|chunk|end|keepalive)$/.test(ev) && id) {
+    const ctx = S.nkn.streams.get(id);
+    if (!ctx) return;
 
-        if (ev === 'relay.response.begin') {
-          ctx.expected = 1;
-          ctx.pending = new Map();
-          ctx.leftover = new Uint8Array(0);
-          ctx.onBegin && ctx.onBegin(msg);
-          return;
+    // helpers placed on ctx the first time we need them
+    function ensureStreamState() {
+        if (ctx.__inited) return;
+        ctx.__inited   = true;
+        ctx.expected   = 1;                      // next seq we want to deliver
+        ctx.pending    = new Map();              // out-of-order stash: seq -> bytes
+        ctx.leftover   = new Uint8Array(0);      // not used here, but left for handlers
+        ctx.ended      = false;                  // saw end frame yet?
+        ctx.lastSeq    = null;                   // last expected seq from end frame
+        ctx.endTimer   = null;                   // guard timer after end
+        ctx.setEndTimer = (ms=1500)=>{
+        if (ctx.endTimer) clearTimeout(ctx.endTimer);
+        ctx.endTimer = setTimeout(()=> {
+            // If we still haven't completed naturally, force-complete
+            finish('timeout');
+        }, ms);
+        };
+        ctx.maybeFinish = ()=>{
+        if (!ctx.ended) return false;
+        if (ctx.lastSeq == null) return false;
+        if (ctx.expected > ctx.lastSeq && ctx.pending.size === 0) {
+            finish('natural');
+            return true;
         }
+        return false;
+        };
+    }
 
-        if (ev === 'relay.response.chunk') {
-          const seq = msg.seq|0;
-          const bytes = b64ToBytes(msg.b64 || '');
-          if (seq === ctx.expected) {
-            ctx.onChunk && ctx.onChunk(bytes, seq);
+    function finish(reason){
+        if (ctx.__done) return;
+        ctx.__done = true;
+        if (ctx.endTimer) { clearTimeout(ctx.endTimer); ctx.endTimer = null; }
+        // Resolve vs reject based on ok flag the end frame carried
+        if (ctx._endOk === false && ctx.onReject) {
+        ctx.onReject(new Error(ctx._endErr || 'stream error'));
+        } else if (ctx.onResolve) {
+        ctx.onResolve(ctx._endMsg || { id, ok: true, reason });
+        }
+        S.nkn.streams.delete(id);
+    }
+
+    if (ev === 'relay.response.begin') {
+        ensureStreamState();
+        // let the consumer know
+        ctx.onBegin && ctx.onBegin(msg);
+        return;
+    }
+
+    if (ev === 'relay.response.chunk') {
+        ensureStreamState();
+        const seq = msg.seq|0;
+        const bytes = b64ToBytes(msg.b64 || '');
+        if (seq === ctx.expected) {
+        // deliver now
+        ctx.onChunk && ctx.onChunk(bytes, seq);
+        ctx.expected++;
+        // and flush any immediately following buffered chunks
+        while (ctx.pending.has(ctx.expected)) {
+            const b = ctx.pending.get(ctx.expected);
+            ctx.pending.delete(ctx.expected);
+            ctx.onChunk && ctx.onChunk(b, ctx.expected);
             ctx.expected++;
-            // flush buffered
-            while (ctx.pending.has(ctx.expected)) {
-              const b = ctx.pending.get(ctx.expected);
-              ctx.pending.delete(ctx.expected);
-              ctx.onChunk && ctx.onChunk(b, ctx.expected);
-              ctx.expected++;
-            }
-          } else if (seq > ctx.expected) {
-            ctx.pending.set(seq, bytes);
-          } // else late/dup → drop
-          return;
         }
+        ctx.maybeFinish();
+        } else if (seq > ctx.expected) {
+        ctx.pending.set(seq, bytes);
+        } // else: late/dup -> drop
+        return;
+    }
 
-        if (ev === 'relay.response.end') {
-          if (msg.ok === false && ctx.onReject) ctx.onReject(new Error(msg.error || 'stream error'));
-          else ctx.onResolve && ctx.onResolve(msg);
-          S.nkn.streams.delete(id);
-          return;
-        }
+    if (ev === 'relay.response.end') {
+        ensureStreamState();
+        // Store end info but DO NOT delete ctx yet
+        ctx._endMsg = msg;
+        ctx._endOk  = (msg.ok !== false);
+        ctx._endErr = msg.error || null;
+        ctx.ended   = true;
 
-        if (ev === 'relay.response.keepalive') {
-          return;
+        // Prefer server-provided last_seq; fallback to best guess
+        const ls = (typeof msg.last_seq === 'number' && msg.last_seq >= 0)
+        ? msg.last_seq
+        : ((typeof msg.seq === 'number' && msg.seq >= 0) ? msg.seq : (ctx.expected - 1));
+        ctx.lastSeq = ls;
+
+        if (!ctx.maybeFinish()) {
+        // Give a little time for any stragglers to arrive
+        ctx.setEndTimer(1500);
         }
-      }
+        return;
+    }
+
+    if (ev === 'relay.response.keepalive') {
+        // optional UI hook
+        return;
+    }
+    }
 
       // single-response path
       if (ev === 'relay.response' && id) {
@@ -720,37 +778,82 @@ async function doStreamNKN(){
     timeout_ms: 120000
   };
 
-  // per-stream local decoding helper (respects odd bytes)
+  // per-stream reassembly state
   let leftover = new Uint8Array(0);
-  function handleBytes(bytes){
-    const buf = new Uint8Array(leftover.length + bytes.length);
-    buf.set(leftover, 0); buf.set(bytes, leftover.length);
-    const wholeFrames = Math.floor(buf.length / 2);
+  let expected = 1;
+  const buf = new Map();     // seq -> Uint8Array
+  let ended = false;
+  let lastSeq = null;
+
+  function handlePcmBytes(bytes){
+    // combine with leftover; ensure even bytes for int16
+    const merged = new Uint8Array(leftover.length + bytes.length);
+    merged.set(leftover, 0); merged.set(bytes, leftover.length);
+    const wholeFrames = Math.floor(merged.length / 2);
     const evenBytes = wholeFrames * 2;
-    const bodyBytes = buf.subarray(0, evenBytes);
-    leftover = buf.subarray(evenBytes);
+    const bodyBytes = merged.subarray(0, evenBytes);
+    leftover = merged.subarray(evenBytes);
+
     if (!evenBytes) return;
     const view = new DataView(bodyBytes.buffer, bodyBytes.byteOffset, bodyBytes.byteLength);
     const int16 = new Int16Array(wholeFrames);
     for (let i=0;i<wholeFrames;i++) int16[i] = view.getInt16(i*2, true);
+
     let f32 = int16ToFloat32(int16);
     const targetRate = S.ac.sampleRate || S.targetPcmRate;
     if (targetRate !== 22050) f32 = resampleLinear(f32, 22050, targetRate);
     enqueuePcmF32(f32);
   }
 
-  let chunkCount = 0;
+  function flushInOrder(){
+    while (buf.has(expected)) {
+      const bytes = buf.get(expected);
+      buf.delete(expected);
+      handlePcmBytes(bytes);
+      expected++;
+    }
+    // Finish only when we've flushed exactly through the announced lastSeq
+    if (ended && lastSeq !== null && expected > lastSeq) {
+      if (leftover.length) leftover = new Uint8Array(0); // drop odd trailing byte if any
+      log.textContent = '(stream ended)';
+      toast('Stream complete');
+    }
+  }
+
   try {
     await nknSendRelayStream(req, {
-      onBegin: (m)=>{ chunkCount = 0; log.textContent = `(stream begin ${m.status||''})`; },
-      onChunk: (bytes)=>{ handleBytes(bytes); chunkCount++; if (chunkCount % 8 === 0) log.textContent = `(chunks: ${chunkCount})`; },
-      onEnd:   (m)=>{ log.textContent = `(stream ended, chunks: ${chunkCount})`; toast('Stream complete'); },
+      onBegin: (m)=>{
+        leftover = new Uint8Array(0);
+        expected = 1;
+        buf.clear();
+        ended = false;
+        lastSeq = null;
+        log.textContent = `(stream begin ${m.status||''})`;
+      },
+      onChunk: (bytes, seq)=>{
+        // Some senders may not include seq in the handler call; derive if needed
+        const s = (typeof seq === 'number' && seq > 0) ? seq : null;
+        if (s === null) {
+          // Fallback: not ideal, but store with a growing key (rarely needed)
+          // Better to depend on seq in the message; our relay includes it.
+          return;
+        }
+        buf.set(s, bytes);
+        flushInOrder();
+      },
+      onEnd:   (m)=>{
+        ended = true;
+        // server now supplies last_seq; fall back to current highest in map if missing
+        lastSeq = (typeof m.last_seq === 'number' && m.last_seq >= 0) ? m.last_seq : Math.max(0, ...buf.keys());
+        flushInOrder();
+      },
     }, req.timeout_ms);
   } catch(e){
     log.textContent = 'Stream error: ' + (e && e.message ? e.message : e);
     toast('Stream error', false);
   }
 }
+
 
 function stopStream(){
   if (S.aborter) S.aborter.abort();
