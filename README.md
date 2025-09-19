@@ -1,4 +1,17 @@
-# TTS Service — Terminal Cheat-Sheet (README-style)
+# TTS Service
+
+Automatic Deployment with Piper and ONNX models
+
+## Quickstart
+
+Run in terminal
+```
+git clone --depth=1 https://github.com/robit-man/piper-tts-service.git && cd piper-tts-service && python3 tts_service.py
+```
+Then, in another terminal, test with
+```
+curl -s -X POST "http://127.0.0.1:8123/speak"   -H 'Content-Type: application/json'   -d '{"text":"Example playback over.","mode":"play"}' | jq
+```
 
 This assumes you’ve saved and started the service:
 
