@@ -691,16 +691,95 @@ def speak():
         return jsonify({"error":str(e)}), 500
 
 # ─────────────────────────────────────────────────────────────────────────────
-# 6) Serve + tips
+# 6) Serve + tips (AUTO-PORT + GRACEFUL SHUTDOWN)
 # ─────────────────────────────────────────────────────────────────────────────
-def _print_startup():
-    log(f"TTS service listening on http://{TTS_BIND}:{TTS_PORT}", "SUCCESS")
+import atexit, signal, socket, threading, os
+from werkzeug.serving import make_server
+
+def _print_startup(actual_port: int):
+    log(f"TTS service listening on http://{TTS_BIND}:{actual_port}", "SUCCESS")
     auth_note = "ON" if TTS_REQUIRE_AUTH else "OFF"
     log(f"Auth required: {auth_note}", "INFO")
     if TTS_REQUIRE_AUTH:
         log("Provide X-API-Key or Bearer session_key (via /handshake).", "INFO")
-    log("Try:  curl -s http://localhost:8123/health | jq", "INFO")
+    log(f"Try:  curl -s http://{('localhost' if TTS_BIND=='0.0.0.0' else TTS_BIND)}:{actual_port}/health | jq", "INFO")
+
+def _port_is_free(host: str, port: int) -> bool:
+    s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    s.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+    try:
+        s.bind((host, port))
+        s.close()
+        return True
+    except OSError:
+        try: s.close()
+        except: pass
+        return False
+
+def _find_free_port(preferred: int, tries: int = 100) -> int:
+    for p in range(preferred, preferred + tries + 1):
+        if _port_is_free(TTS_BIND, p):
+            return p
+    raise RuntimeError(f"No free port in range {preferred}..{preferred+tries}")
+
+class _ServerThread(threading.Thread):
+    def __init__(self, app, host, port):
+        super().__init__(daemon=True)
+        # NOTE: werkzeug's WSGIServer has allow_reuse_address=True by default
+        self._srv = make_server(host, port, app)
+        self.port = port
+
+    def run(self):
+        self._srv.serve_forever()
+
+    def shutdown(self):
+        try:
+            self._srv.shutdown()
+        except Exception:
+            pass
+
+_server_thread = None
+
+def _start_server():
+    global _server_thread
+    try:
+        actual_port = _find_free_port(TTS_PORT, tries=100)
+    except Exception as e:
+        log(f"Port selection failed: {e}", "ERROR")
+        raise
+    _server_thread = _ServerThread(app, TTS_BIND, actual_port)
+    _server_thread.start()
+    _print_startup(actual_port)
+    return actual_port
+
+def _graceful_exit(signum=None, frame=None):
+    signame = {signal.SIGINT:"SIGINT", getattr(signal, "SIGTSTP", 20):"SIGTSTP", signal.SIGTERM:"SIGTERM"}.get(signum, str(signum))
+    log(f"Received {signame} — shutting down server…", "INFO")
+    try:
+        if _server_thread:
+            _server_thread.shutdown()
+    except Exception as e:
+        log(f"Shutdown error: {e}", "WARNING")
+    # ensure we really release the socket immediately
+    os._exit(0)
+
+# atexit + signals → always free the port
+atexit.register(_graceful_exit)
+signal.signal(signal.SIGINT,  _graceful_exit)   # Ctrl-C
+signal.signal(signal.SIGTERM, _graceful_exit)   # docker stop / kill
+
+# Ctrl-Z (background) sends SIGTSTP on POSIX; intercept to cleanly exit and free port
+if hasattr(signal, "SIGTSTP"):
+    signal.signal(signal.SIGTSTP, _graceful_exit)
 
 if __name__ == "__main__":
-    _print_startup()
-    app.run(host=TTS_BIND, port=TTS_PORT, threaded=True)
+    _start_server()
+    # Block the main thread so the process sticks around; server runs in daemon thread
+    try:
+        while True:
+            signal.pause()  # wait for signals; portable on POSIX
+    except AttributeError:
+        # Windows: no signal.pause(); just sleep-loop
+        import time
+        while True:
+            time.sleep(3600)
