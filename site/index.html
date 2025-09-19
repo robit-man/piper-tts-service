@@ -1,0 +1,639 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>TTS Service — Minimal Frontend</title>
+<style>
+  :root {
+    --bg: #0b0f14;
+    --panel: rgba(255,255,255,0.07);
+    --panel-2: rgba(255,255,255,0.05);
+    --accent: #66e0ff;
+    --accent-2: #a8ff60;
+    --text: #e8f1f8;
+    --muted: #a9b6c3;
+    --danger: #ff6b6b;
+    --ok: #7dffb0;
+    --mono: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+    --radius: 16px;
+    --shadow: 0 10px 30px rgba(0,0,0,.35), inset 0 0 1px rgba(255,255,255,.12);
+  }
+  * { box-sizing: border-box; }
+  html, body { height:100%; }
+  body {
+    margin:0; color:var(--text); background: radial-gradient(1200px 800px at 10% -10%, #163147, transparent 60%),
+      radial-gradient(900px 600px at 100% 0%, #1b2d18, transparent 55%), var(--bg);
+    font-family: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Noto Sans, Ubuntu, Cantarell, Helvetica Neue, Arial;
+    line-height: 1.3;
+  }
+
+  header {
+    padding: 24px 20px;
+    display:flex; gap:18px; align-items:center; justify-content:space-between;
+  }
+  .brand { display:flex; gap:14px; align-items:center; letter-spacing:.4px; }
+  .logo {
+    width:40px; height:40px; border-radius:12px; background:
+      conic-gradient(from 220deg, var(--accent), #9f78ff, var(--accent-2));
+    box-shadow: var(--shadow);
+  }
+  .brand h1 { font-size: 18px; margin:0; font-weight:700; }
+  .hint { color:var(--muted); font-size:12px; }
+
+  .grid {
+    display:grid; gap:16px; padding: 0 20px 24px;
+    grid-template-columns: repeat(12, 1fr);
+  }
+  .card {
+    grid-column: span 12;
+    background: var(--panel);
+    border: 1px solid rgba(255,255,255,.08);
+    border-radius: var(--radius);
+    box-shadow: var(--shadow);
+    backdrop-filter: blur(8px);
+    padding: 16px;
+  }
+  @media (min-width: 980px) {
+    .span-6 { grid-column: span 6; }
+    .span-4 { grid-column: span 4; }
+    .span-8 { grid-column: span 8; }
+  }
+  .card h2 { margin:0 0 8px 0; font-size:16px; }
+  .row { display:flex; flex-wrap:wrap; gap:10px; align-items:center; }
+  .row > * { margin: 2px 0; }
+  label { font-size:12px; color:var(--muted); margin-right:6px; }
+  input[type="text"], input[type="url"], input[type="number"], textarea, select {
+    width: 100%;
+    background: var(--panel-2);
+    color:var(--text);
+    border:1px solid rgba(255,255,255,.15);
+    padding:10px 12px; border-radius:12px; outline:none;
+    font-size:14px;
+  }
+  input::placeholder, textarea::placeholder { color:#90a4b5; opacity:.75; }
+  textarea { resize:vertical; min-height:84px; }
+  button {
+    background: linear-gradient(180deg, rgba(102,224,255,.9), rgba(102,224,255,.6));
+    color:#001018; border:0; padding:10px 14px; font-weight:700; border-radius:12px;
+    cursor:pointer; transition:.15s transform ease, .15s filter ease;
+    box-shadow: 0 6px 16px rgba(72, 218, 255, .25), inset 0 0 1px rgba(255,255,255,.6);
+  }
+  button.secondary {
+    background: linear-gradient(180deg, rgba(168,255,96,.9), rgba(168,255,96,.6));
+    color:#021204; box-shadow: 0 6px 16px rgba(168,255,96,.20), inset 0 0 1px rgba(255,255,255,.6);
+  }
+  button.ghost {
+    background: transparent; color: var(--text);
+    border:1px solid rgba(255,255,255,.2);
+  }
+  button:active { transform: translateY(1px); }
+  .badge { display:inline-flex; align-items:center; gap:8px; padding:8px 10px; border-radius:999px; border:1px solid rgba(255,255,255,.15); background:rgba(255,255,255,.05); }
+  .dot { width:10px; height:10px; border-radius:50%; background:#999; }
+  .dot.ok { background: var(--ok); box-shadow: 0 0 12px var(--ok); }
+  .dot.warn { background: #f9c846; box-shadow: 0 0 12px #f9c846; }
+  .dot.err { background: var(--danger); box-shadow: 0 0 12px var(--danger); }
+  .code {
+    background: #04070b; border:1px solid rgba(255,255,255,.12); border-radius:12px;
+    padding:12px; font-family: var(--mono); font-size:12px; white-space:pre-wrap; color:#d7f0ff;
+    max-height: 240px; overflow:auto;
+  }
+  .audio-stack { display:flex; gap:10px; align-items:center; flex-wrap:wrap; }
+  audio { width: 260px; height: 36px; }
+  .pill { font-family: var(--mono); font-size: 12px; color:#03131a; background:var(--accent); border-radius: 999px; padding:4px 8px; }
+  .muted { color: var(--muted); font-size:12px; }
+  .kv { display:grid; grid-template-columns: 110px 1fr; gap:10px 10px; }
+  hr.sep { border:0; height:1px; background: linear-gradient(90deg, transparent, rgba(255,255,255,.12), transparent); margin: 12px 0; }
+</style>
+</head>
+<body>
+<header>
+  <div class="brand">
+    <div class="logo"></div>
+    <div>
+      <h1>TTS Service Playground</h1>
+      <div class="hint">Piper-backed TTS · File, Stream, or Play on Server</div>
+    </div>
+  </div>
+  <div id="status" class="badge"><span class="dot warn"></span><span>Checking…</span></div>
+</header>
+
+<main class="grid">
+
+  <!-- SETTINGS -->
+  <section class="card span-6">
+    <h2>Settings</h2>
+    <div class="kv">
+      <label for="baseUrl">Base URL</label>
+      <input id="baseUrl" type="url" placeholder="http://localhost:8123" />
+      <label for="apiKey">API Key</label>
+      <input id="apiKey" type="text" placeholder="(optional, if server requires auth)" />
+      <div></div>
+      <div class="row">
+        <button id="saveSettings">Save</button>
+        <button class="secondary" id="handshakeBtn">Handshake → Session</button>
+        <button class="ghost" id="clearSession">Clear Session</button>
+      </div>
+    </div>
+    <hr class="sep">
+    <div class="row">
+      <button id="checkHealth">Check Health</button>
+      <button class="secondary" id="loadModels">Load Models</button>
+      <span class="muted">Session: <span id="sessInfo">none</span></span>
+    </div>
+    <div id="healthBox" class="code" style="margin-top:8px; display:none;"></div>
+  </section>
+
+  <!-- MODELS -->
+  <section class="card span-6">
+    <h2>Models</h2>
+    <div class="row" style="margin-bottom:8px;">
+      <label for="modelName">Use Model</label>
+      <input id="modelName" list="modelList" placeholder="glados_piper_medium or voices/xyz.onnx" />
+      <datalist id="modelList"></datalist>
+    </div>
+    <details>
+      <summary class="muted">Pull a new voice into <code>./voices</code></summary>
+      <div class="kv" style="margin-top:8px;">
+        <label>name</label><input id="pullName" type="text" placeholder="myvoice"/>
+        <label>onnx url</label><input id="pullOnnx" type="url" placeholder="https://…/voice.onnx"/>
+        <label>json url</label><input id="pullJson" type="url" placeholder="https://…/voice.onnx.json"/>
+        <div></div><button id="pullBtn">Pull Voice</button>
+      </div>
+    </details>
+    <div id="modelsBox" class="code" style="margin-top:8px; display:none;"></div>
+  </section>
+
+  <!-- FILE MODE -->
+  <section class="card span-6">
+    <h2>Generate → File</h2>
+    <div class="kv">
+      <label>format</label>
+      <select id="fileFormat">
+        <option value="ogg" selected>ogg (opus)</option>
+        <option value="wav">wav</option>
+        <option value="raw">raw (PCM)</option>
+      </select>
+      <label>text</label>
+      <textarea id="fileText" placeholder="Hello from the TTS service!"></textarea>
+      <label>volume</label>
+      <input id="fileVol" type="number" min="0" max="1" step="0.05" value="1.0" />
+      <div></div>
+      <div class="row">
+        <button id="fileGo">Generate</button>
+        <span class="muted">Split: auto · Mode: file</span>
+      </div>
+    </div>
+    <div class="audio-stack" id="fileResult" style="margin-top:10px; display:none;">
+      <audio id="fileAudio" controls></audio>
+      <a id="fileDownload" href="#" download class="pill">Download</a>
+      <span class="muted" id="fileMeta"></span>
+    </div>
+    <div id="fileLog" class="code" style="margin-top:8px; display:none;"></div>
+  </section>
+
+  <!-- STREAM MODE -->
+  <section class="card span-6">
+    <h2>Stream → Browser (live)</h2>
+    <div class="kv">
+      <label>format</label>
+      <select id="streamFormat">
+        <option value="raw" selected>raw (PCM 16-bit mono 22050Hz)</option>
+        <option value="ogg">ogg (opus) — requires MSE; not used here</option>
+        <option value="wav">wav — better after full buffer</option>
+      </select>
+      <label>text</label>
+      <textarea id="streamText" placeholder="This will play as bytes arrive."></textarea>
+      <label>volume</label>
+      <input id="streamVol" type="number" min="0" max="1" step="0.05" value="1.0" />
+      <div></div>
+      <div class="row">
+        <button id="streamGo">Stream & Play</button>
+        <button class="ghost" id="streamStop">Stop</button>
+        <span class="muted">Mode: stream · Playback: WebAudio</span>
+      </div>
+    </div>
+    <div class="row" style="margin-top:10px;">
+      <span class="muted">AudioContext: <span id="acInfo">—</span></span>
+      <span class="muted">Buffered samples: <span id="bufInfo">0</span></span>
+    </div>
+    <div id="streamLog" class="code" style="margin-top:8px; display:none;"></div>
+  </section>
+
+  <!-- PLAY ON SERVER -->
+  <section class="card span-4">
+    <h2>Play on Server</h2>
+    <div class="kv">
+      <label>text</label>
+      <textarea id="playText" placeholder="This plays on the host running the service."></textarea>
+      <div></div>
+      <div class="row">
+        <button id="playGo">Send</button>
+        <span class="muted">Requires <code>aplay</code> or <code>ffplay</code> on server.</span>
+      </div>
+    </div>
+    <div id="playLog" class="code" style="margin-top:8px; display:none;"></div>
+  </section>
+
+  <!-- EXAMPLES -->
+  <section class="card span-8">
+    <h2>Quick Examples</h2>
+    <div class="row" style="flex-wrap:wrap">
+      <button class="ghost" data-example="hello-file">“Hello” → File</button>
+      <button class="ghost" data-example="hello-stream">“Hello” → Stream</button>
+      <button class="ghost" data-example="lorem-file">Paragraph → File</button>
+      <button class="ghost" data-example="server-play">Short → Play on Server</button>
+    </div>
+    <div class="code" style="margin-top:8px;">
+curl -X POST "$BASE/speak" \
+  -H "Content-Type: application/json" \
+  -d '{"text":"Hello!", "mode":"file"}'
+    </div>
+  </section>
+
+</main>
+
+<script>
+/* ========== STATE ========== */
+const S = {
+  base: localStorage.getItem('tts.base') || 'http://localhost:8123',
+  apiKey: localStorage.getItem('tts.apiKey') || '',
+  sessionKey: localStorage.getItem('tts.sessionKey') || '',
+  sessionExp: parseInt(localStorage.getItem('tts.sessionExp') || '0', 10),
+  ac: null,
+  scriptNode: null,
+  pcmQueue: [], // array of Float32Array chunks at AC sampleRate
+  queuedSamples: 0,
+  reader: null,
+  aborter: null,
+  targetPcmRate: 22050,
+};
+
+/* ========== HELPERS ========== */
+function qs(id){ return document.getElementById(id) }
+function j(x){ return JSON.stringify(x, null, 2) }
+function now(){ return Math.floor(Date.now()/1000) }
+function updateSessInfo(){
+  const si = qs('sessInfo');
+  if (S.sessionKey && S.sessionExp && S.sessionExp > now()) {
+    const ttl = S.sessionExp - now();
+    si.textContent = `bearer • ${ttl}s`;
+  } else {
+    si.textContent = 'none';
+  }
+}
+function saveSettings(){
+  S.base = qs('baseUrl').value.trim() || S.base;
+  S.apiKey = qs('apiKey').value.trim();
+  localStorage.setItem('tts.base', S.base);
+  localStorage.setItem('tts.apiKey', S.apiKey);
+  toast('Saved settings');
+}
+function setInputsFromState(){
+  qs('baseUrl').value = S.base;
+  qs('apiKey').value  = S.apiKey;
+  updateSessInfo();
+}
+function toast(txt, ok=true){
+  const st = qs('status');
+  st.innerHTML = `<span class="dot ${ok?'ok':'err'}"></span><span>${txt}</span>`;
+  setTimeout(()=>{ st.innerHTML = `<span class="dot ok"></span><span>Ready</span>`; }, 1800);
+}
+function authHeaders(h={}) {
+  const headers = Object.assign({'Content-Type':'application/json'}, h);
+  const fresh = S.sessionKey && S.sessionExp && S.sessionExp > now();
+  if (fresh) {
+    headers['Authorization'] = `Bearer ${S.sessionKey}`;
+  } else if (S.apiKey) {
+    headers['X-API-Key'] = S.apiKey;
+  }
+  return headers;
+}
+
+/* ========== BASIC CALLS ========== */
+async function callJSON(path, bodyObj, extraHeaders) {
+  const res = await fetch(S.base + path, {
+    method: 'POST',
+    headers: authHeaders(extraHeaders),
+    body: JSON.stringify(bodyObj||{})
+  });
+  if (!res.ok) throw new Error(`${res.status} ${res.statusText}`);
+  return res.json();
+}
+async function getJSON(path, extraHeaders) {
+  const res = await fetch(S.base + path, { headers: authHeaders(extraHeaders) });
+  if (!res.ok) throw new Error(`${res.status} ${res.statusText}`);
+  return res.json();
+}
+
+/* ========== HEALTH & MODELS ========== */
+async function doHealth(){
+  try {
+    const data = await getJSON('/health');
+    const hb = qs('healthBox');
+    hb.style.display = 'block';
+    hb.textContent = j(data);
+    const st = qs('status');
+    st.innerHTML = `<span class="dot ${data.status==='ok'?'ok':'warn'}"></span><span>${data.piper==='ready'?'Piper ready':'Piper missing'}</span>`;
+  } catch(e){
+    qs('healthBox').style.display = 'block';
+    qs('healthBox').textContent = 'Error: ' + e.message;
+    toast('Health error', false);
+  }
+}
+async function doModels(){
+  try {
+    const data = await getJSON('/models');
+    const mb = qs('modelsBox');
+    mb.style.display = 'block';
+    mb.textContent = j(data);
+    // populate datalist
+    const dl = qs('modelList'); dl.innerHTML = '';
+    (data.models || []).forEach(m=>{
+      const opt = document.createElement('option');
+      opt.value = m.name;
+      dl.appendChild(opt);
+    });
+    toast('Loaded models');
+  } catch(e){
+    qs('modelsBox').style.display = 'block';
+    qs('modelsBox').textContent = 'Error: ' + e.message;
+    toast('Models error', false);
+  }
+}
+
+/* ========== AUTH: HANDSHAKE ========== */
+async function doHandshake(){
+  if (!S.apiKey) { toast('Enter API key first', false); return; }
+  try {
+    const data = await callJSON('/handshake', { api_key:S.apiKey });
+    S.sessionKey = data.session_key;
+    S.sessionExp = now() + (data.expires_in|0);
+    localStorage.setItem('tts.sessionKey', S.sessionKey);
+    localStorage.setItem('tts.sessionExp', String(S.sessionExp));
+    updateSessInfo();
+    toast('Session established');
+  } catch(e){
+    toast('Handshake failed', false);
+  }
+}
+function clearSession(){
+  S.sessionKey=''; S.sessionExp=0;
+  localStorage.removeItem('tts.sessionKey');
+  localStorage.removeItem('tts.sessionExp');
+  updateSessInfo();
+  toast('Session cleared');
+}
+
+/* ========== FILE MODE ========== */
+async function doFile(){
+  const text   = qs('fileText').value.trim() || 'Hello from the TTS service!';
+  const format = qs('fileFormat').value;
+  const volume = parseFloat(qs('fileVol').value || '1') || 1.0;
+  const model  = qs('modelName').value.trim();
+  try {
+    const body = { text, mode:'file', format, volume };
+    if (model) body.model = model;
+    const data = await callJSON('/speak', body);
+    const log = qs('fileLog'); log.style.display='block'; log.textContent=j(data);
+    const f = (data.files && data.files[0]) ? data.files[0] : null;
+    if (!f) { toast('No file returned', false); return; }
+    // fetch file to create a blob URL (works across CORS)
+    const fileUrl = S.base + (f.url || '');
+    const r = await fetch(fileUrl, { headers: authHeaders() });
+    const blob = await r.blob();
+    const objUrl = URL.createObjectURL(blob);
+    const a = qs('fileAudio'); a.src = objUrl; a.play().catch(()=>{});
+    const dl = qs('fileDownload'); dl.href = objUrl; dl.download = f.filename || 'tts';
+    qs('fileMeta').textContent = `${blob.type} • ${(blob.size/1024).toFixed(1)} KB`;
+    qs('fileResult').style.display='flex';
+    toast('File ready');
+  } catch(e){
+    const log = qs('fileLog'); log.style.display='block'; log.textContent='Error: '+e.message;
+    toast('File generation failed', false);
+  }
+}
+
+/* ========== STREAM MODE (RAW PCM → WebAudio) ========== */
+function ensureAudioContext() {
+  if (S.ac) return S.ac;
+  try {
+    // Try to match PCM rate (22050). If unsupported, browser will choose closest rate.
+    S.ac = new (window.AudioContext || window.webkitAudioContext)({ sampleRate: S.targetPcmRate });
+  } catch {
+    S.ac = new (window.AudioContext || window.webkitAudioContext)();
+  }
+  const node = S.ac.createScriptProcessor(4096, 1, 1);
+  node.onaudioprocess = e => {
+    const out = e.outputBuffer.getChannelData(0);
+    if (!S.pcmQueue.length) { out.fill(0); return; }
+    let need = out.length, off = 0;
+    while (need > 0) {
+      if (!S.pcmQueue.length) { out.fill(0, off); break; }
+      const head = S.pcmQueue[0];
+      const take = Math.min(need, head.length);
+      out.set(head.subarray(0, take), off);
+      if (take === head.length) {
+        S.pcmQueue.shift();
+      } else {
+        S.pcmQueue[0] = head.subarray(take);
+      }
+      S.queuedSamples -= take;
+      off += take; need -= take;
+    }
+    qs('bufInfo').textContent = S.queuedSamples.toString();
+  };
+  node.connect(S.ac.destination);
+  S.scriptNode = node;
+  qs('acInfo').textContent = `${S.ac.sampleRate} Hz`;
+  return S.ac;
+}
+function int16ToFloat32(int16) {
+  const out = new Float32Array(int16.length);
+  for (let i=0;i<int16.length;i++) out[i] = Math.max(-1, Math.min(1, int16[i]/32768));
+  return out;
+}
+function resampleLinear(input, fromRate, toRate) {
+  if (fromRate === toRate) return input;
+  const ratio = toRate / fromRate;
+  const newLen = Math.round(input.length * ratio);
+  const out = new Float32Array(newLen);
+  for (let i=0;i<newLen;i++){
+    const pos = i/ratio;
+    const i0 = Math.floor(pos);
+    const i1 = Math.min(i0+1, input.length-1);
+    const frac = pos - i0;
+    out[i] = input[i0]*(1-frac) + input[i1]*frac;
+  }
+  return out;
+}
+function enqueuePcmF32(f32) {
+  S.pcmQueue.push(f32);
+  S.queuedSamples += f32.length;
+  qs('bufInfo').textContent = S.queuedSamples.toString();
+}
+async function doStream(){
+  const text   = qs('streamText').value.trim() || 'Streaming from the TTS service.';
+  const volume = parseFloat(qs('streamVol').value || '1') || 1.0;
+  let   format = qs('streamFormat').value;
+  const model  = qs('modelName').value.trim();
+  // We implement low-latency playback for RAW; enforce it for now.
+  if (format !== 'raw') {
+    format = 'raw';
+    qs('streamFormat').value = 'raw';
+  }
+
+  ensureAudioContext();
+  await S.ac.resume();
+
+  // clean previous stream if any
+  if (S.aborter) S.aborter.abort();
+  S.pcmQueue.length = 0; S.queuedSamples = 0;
+
+  const body = { text, mode:'stream', format, volume };
+  if (model) body.model = model;
+
+  const ctrl = new AbortController(); S.aborter = ctrl;
+  const log = qs('streamLog'); log.style.display='block'; log.textContent='(streaming)';
+
+  try {
+    const res = await fetch(S.base + '/speak', {
+      method: 'POST',
+      headers: authHeaders({'Content-Type':'application/json'}),
+      body: JSON.stringify(body),
+      signal: ctrl.signal
+    });
+    if (!res.ok || !res.body) throw new Error(`${res.status} ${res.statusText}`);
+
+    const reader = res.body.getReader(); S.reader = reader;
+    let leftover = new Uint8Array(0);
+    const targetRate = S.ac.sampleRate || S.targetPcmRate;
+
+    while (true) {
+      const { value, done } = await reader.read();
+      if (done) break;
+      if (!value || !value.byteLength) continue;
+
+      // glue leftover + new
+      const buf = new Uint8Array(leftover.length + value.length);
+      buf.set(leftover, 0);
+      buf.set(value, leftover.length);
+      const total = buf.length;
+      const wholeFrames = Math.floor(total / 2); // 16-bit mono
+      const evenBytes = wholeFrames * 2;
+      const bodyBytes = buf.subarray(0, evenBytes);
+      leftover = buf.subarray(evenBytes); // preserve odd byte
+
+      // int16 -> float32
+      const view = new DataView(bodyBytes.buffer, bodyBytes.byteOffset, bodyBytes.byteLength);
+      const int16 = new Int16Array(wholeFrames);
+      for (let i=0;i<wholeFrames;i++) int16[i] = view.getInt16(i*2, true);
+      let f32 = int16ToFloat32(int16);
+
+      // resample if necessary
+      if (targetRate !== 22050) f32 = resampleLinear(f32, 22050, targetRate);
+
+      enqueuePcmF32(f32);
+    }
+    log.textContent = '(stream ended)';
+    toast('Stream complete');
+  } catch(e){
+    if (e.name !== 'AbortError') {
+      log.textContent = 'Stream error: ' + e.message;
+      toast('Stream error', false);
+    } else {
+      log.textContent = '(stopped)';
+    }
+  } finally {
+    S.reader = null; S.aborter = null;
+  }
+}
+function stopStream(){
+  if (S.aborter) S.aborter.abort();
+  S.pcmQueue.length = 0; S.queuedSamples = 0;
+}
+
+/* ========== PLAY ON SERVER ========== */
+async function doPlay(){
+  const text   = qs('playText').value.trim() || 'This plays on the server.';
+  const model  = qs('modelName').value.trim();
+  try {
+    const body = { text, mode:'play' };
+    if (model) body.model = model;
+    const data = await callJSON('/speak', body);
+    const log = qs('playLog'); log.style.display='block'; log.textContent=j(data);
+    toast('Sent to server speakers');
+  } catch(e){
+    const log = qs('playLog'); log.style.display='block'; log.textContent='Error: '+e.message;
+    toast('Server play failed', false);
+  }
+}
+
+/* ========== PULL VOICE ========== */
+async function doPull(){
+  const name = qs('pullName').value.trim();
+  const u1 = qs('pullOnnx').value.trim();
+  const u2 = qs('pullJson').value.trim();
+  if (!u1 || !u2) { toast('Provide ONNX + JSON URLs', false); return; }
+  try {
+    const body = { onnx_model_url: u1, onnx_json_url: u2 };
+    if (name) body.name = name;
+    const data = await callJSON('/models/pull', body);
+    qs('modelsBox').style.display='block';
+    qs('modelsBox').textContent = j(data);
+    toast('Voice pulled');
+    doModels();
+  } catch(e){
+    qs('modelsBox').style.display='block';
+    qs('modelsBox').textContent = 'Error: ' + e.message;
+    toast('Pull failed', false);
+  }
+}
+
+/* ========== EXAMPLES ========== */
+function bindExamples(){
+  document.querySelectorAll('[data-example]').forEach(btn=>{
+    btn.addEventListener('click', ()=> {
+      const k = btn.getAttribute('data-example');
+      switch(k){
+        case 'hello-file':
+          qs('fileText').value = 'Hello from the TTS service!';
+          doFile(); break;
+        case 'hello-stream':
+          qs('streamText').value = 'Hello! This is a live stream test.';
+          doStream(); break;
+        case 'lorem-file':
+          qs('fileText').value = 'Lorem ipsum dolor sit amet, consectetur adipiscing elit. Integer accumsan, sapien sit amet.';
+          doFile(); break;
+        case 'server-play':
+          qs('playText').value = 'This is a short server playback test.';
+          doPlay(); break;
+      }
+    });
+  });
+}
+
+/* ========== INIT ========== */
+function init(){
+  setInputsFromState();
+  // Events
+  qs('saveSettings').addEventListener('click', saveSettings);
+  qs('handshakeBtn').addEventListener('click', doHandshake);
+  qs('clearSession').addEventListener('click', clearSession);
+  qs('checkHealth').addEventListener('click', doHealth);
+  qs('loadModels').addEventListener('click', doModels);
+  qs('fileGo').addEventListener('click', doFile);
+  qs('streamGo').addEventListener('click', doStream);
+  qs('streamStop').addEventListener('click', stopStream);
+  qs('playGo').addEventListener('click', doPlay);
+  qs('pullBtn').addEventListener('click', doPull);
+  bindExamples();
+
+  // First health/model fetch
+  doHealth().then(doModels).catch(()=>{});
+  qs('status').innerHTML = `<span class="dot ok"></span><span>Ready</span>`;
+}
+document.addEventListener('DOMContentLoaded', init);
+</script>
+</body>
+</html>
