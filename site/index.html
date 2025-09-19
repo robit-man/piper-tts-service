@@ -6,105 +6,52 @@
 <title>TTS Service — Minimal Frontend</title>
 <style>
   :root {
-    --bg: #0b0f14;
-    --panel: rgba(255,255,255,0.07);
-    --panel-2: rgba(255,255,255,0.05);
-    --accent: #66e0ff;
-    --accent-2: #a8ff60;
-    --text: #e8f1f8;
-    --muted: #a9b6c3;
-    --danger: #ff6b6b;
-    --ok: #7dffb0;
-    --mono: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
-    --radius: 16px;
-    --shadow: 0 10px 30px rgba(0,0,0,.35), inset 0 0 1px rgba(255,255,255,.12);
+    --bg: #0b0f14; --panel: rgba(255,255,255,0.07); --panel-2: rgba(255,255,255,0.05);
+    --accent: #66e0ff; --accent-2: #a8ff60; --text: #e8f1f8; --muted: #a9b6c3;
+    --danger: #ff6b6b; --ok: #7dffb0; --mono: ui-monospace,SFMono-Regular,Menlo,Monaco,Consolas,"Liberation Mono","Courier New",monospace;
+    --radius: 16px; --shadow: 0 10px 30px rgba(0,0,0,.35), inset 0 0 1px rgba(255,255,255,.12);
   }
-  * { box-sizing: border-box; }
-  html, body { height:100%; }
-  body {
-    margin:0; color:var(--text); background: radial-gradient(1200px 800px at 10% -10%, #163147, transparent 60%),
-      radial-gradient(900px 600px at 100% 0%, #1b2d18, transparent 55%), var(--bg);
-    font-family: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Noto Sans, Ubuntu, Cantarell, Helvetica Neue, Arial;
-    line-height: 1.3;
+  *{box-sizing:border-box} html,body{height:100%}
+  body{margin:0;color:var(--text);background:
+    radial-gradient(1200px 800px at 10% -10%, #163147, transparent 60%),
+    radial-gradient(900px 600px at 100% 0%, #1b2d18, transparent 55%),
+    var(--bg);
+    font-family: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Noto Sans, Ubuntu, Cantarell, Helvetica Neue, Arial; line-height:1.3;
   }
-
-  header {
-    padding: 24px 20px;
-    display:flex; gap:18px; align-items:center; justify-content:space-between;
-  }
-  .brand { display:flex; gap:14px; align-items:center; letter-spacing:.4px; }
-  .logo {
-    width:40px; height:40px; border-radius:12px; background:
-      conic-gradient(from 220deg, var(--accent), #9f78ff, var(--accent-2));
-    box-shadow: var(--shadow);
-  }
-  .brand h1 { font-size: 18px; margin:0; font-weight:700; }
-  .hint { color:var(--muted); font-size:12px; }
-
-  .grid {
-    display:grid; gap:16px; padding: 0 20px 24px;
-    grid-template-columns: repeat(12, 1fr);
-  }
-  .card {
-    grid-column: span 12;
-    background: var(--panel);
-    border: 1px solid rgba(255,255,255,.08);
-    border-radius: var(--radius);
-    box-shadow: var(--shadow);
-    backdrop-filter: blur(8px);
-    padding: 16px;
-  }
-  @media (min-width: 980px) {
-    .span-6 { grid-column: span 6; }
-    .span-4 { grid-column: span 4; }
-    .span-8 { grid-column: span 8; }
-  }
-  .card h2 { margin:0 0 8px 0; font-size:16px; }
-  .row { display:flex; flex-wrap:wrap; gap:10px; align-items:center; }
-  .row > * { margin: 2px 0; }
-  label { font-size:12px; color:var(--muted); margin-right:6px; }
-  input[type="text"], input[type="url"], input[type="number"], textarea, select {
-    width: 100%;
-    background: var(--panel-2);
-    color:var(--text);
-    border:1px solid rgba(255,255,255,.15);
-    padding:10px 12px; border-radius:12px; outline:none;
-    font-size:14px;
-  }
-  input::placeholder, textarea::placeholder { color:#90a4b5; opacity:.75; }
-  textarea { resize:vertical; min-height:84px; }
-  button {
-    background: linear-gradient(180deg, rgba(102,224,255,.9), rgba(102,224,255,.6));
-    color:#001018; border:0; padding:10px 14px; font-weight:700; border-radius:12px;
-    cursor:pointer; transition:.15s transform ease, .15s filter ease;
-    box-shadow: 0 6px 16px rgba(72, 218, 255, .25), inset 0 0 1px rgba(255,255,255,.6);
-  }
-  button.secondary {
-    background: linear-gradient(180deg, rgba(168,255,96,.9), rgba(168,255,96,.6));
-    color:#021204; box-shadow: 0 6px 16px rgba(168,255,96,.20), inset 0 0 1px rgba(255,255,255,.6);
-  }
-  button.ghost {
-    background: transparent; color: var(--text);
-    border:1px solid rgba(255,255,255,.2);
-  }
-  button:active { transform: translateY(1px); }
-  .badge { display:inline-flex; align-items:center; gap:8px; padding:8px 10px; border-radius:999px; border:1px solid rgba(255,255,255,.15); background:rgba(255,255,255,.05); }
-  .dot { width:10px; height:10px; border-radius:50%; background:#999; }
-  .dot.ok { background: var(--ok); box-shadow: 0 0 12px var(--ok); }
-  .dot.warn { background: #f9c846; box-shadow: 0 0 12px #f9c846; }
-  .dot.err { background: var(--danger); box-shadow: 0 0 12px var(--danger); }
-  .code {
-    background: #04070b; border:1px solid rgba(255,255,255,.12); border-radius:12px;
-    padding:12px; font-family: var(--mono); font-size:12px; white-space:pre-wrap; color:#d7f0ff;
-    max-height: 240px; overflow:auto;
-  }
-  .audio-stack { display:flex; gap:10px; align-items:center; flex-wrap:wrap; }
-  audio { width: 260px; height: 36px; }
-  .pill { font-family: var(--mono); font-size: 12px; color:#03131a; background:var(--accent); border-radius: 999px; padding:4px 8px; }
-  .muted { color: var(--muted); font-size:12px; }
-  .kv { display:grid; grid-template-columns: 110px 1fr; gap:10px 10px; }
-  hr.sep { border:0; height:1px; background: linear-gradient(90deg, transparent, rgba(255,255,255,.12), transparent); margin: 12px 0; }
+  header{padding:24px 20px;display:flex;gap:18px;align-items:center;justify-content:space-between}
+  .brand{display:flex;gap:14px;align-items:center;letter-spacing:.4px}
+  .logo{width:40px;height:40px;border-radius:12px;background:conic-gradient(from 220deg, var(--accent), #9f78ff, var(--accent-2));box-shadow:var(--shadow)}
+  .brand h1{font-size:18px;margin:0;font-weight:700}
+  .hint{color:var(--muted);font-size:12px}
+  .grid{display:grid;gap:16px;padding:0 20px 24px;grid-template-columns:repeat(12,1fr)}
+  .card{grid-column:span 12;background:var(--panel);border:1px solid rgba(255,255,255,.08);border-radius:var(--radius);box-shadow:var(--shadow);backdrop-filter:blur(8px);padding:16px}
+  @media (min-width:980px){.span-6{grid-column:span 6}.span-4{grid-column:span 4}.span-8{grid-column:span 8}}
+  .card h2{margin:0 0 8px;font-size:16px}
+  .row{display:flex;flex-wrap:wrap;gap:10px;align-items:center}
+  .row>*{margin:2px 0}
+  label{font-size:12px;color:var(--muted);margin-right:6px}
+  input[type="text"],input[type="url"],input[type="number"],textarea,select{
+    width:100%;background:var(--panel-2);color:var(--text);border:1px solid rgba(255,255,255,.15);
+    padding:10px 12px;border-radius:12px;outline:none;font-size:14px}
+  input::placeholder,textarea::placeholder{color:#90a4b5;opacity:.75}
+  textarea{resize:vertical;min-height:84px}
+  button{background:linear-gradient(180deg, rgba(102,224,255,.9), rgba(102,224,255,.6));color:#001018;border:0;padding:10px 14px;font-weight:700;border-radius:12px;cursor:pointer;transition:.15s transform ease,.15s filter ease;box-shadow:0 6px 16px rgba(72,218,255,.25), inset 0 0 1px rgba(255,255,255,.6)}
+  button.secondary{background:linear-gradient(180deg, rgba(168,255,96,.9), rgba(168,255,96,.6));color:#021204;box-shadow:0 6px 16px rgba(168,255,96,.20), inset 0 0 1px rgba(255,255,255,.6)}
+  button.ghost{background:transparent;color:var(--text);border:1px solid rgba(255,255,255,.2)}
+  button:active{transform:translateY(1px)}
+  .badge{display:inline-flex;align-items:center;gap:8px;padding:8px 10px;border-radius:999px;border:1px solid rgba(255,255,255,.15);background:rgba(255,255,255,.05)}
+  .dot{width:10px;height:10px;border-radius:50%;background:#999}.dot.ok{background:var(--ok);box-shadow:0 0 12px var(--ok)}.dot.warn{background:#f9c846;box-shadow:0 0 12px #f9c846}.dot.err{background:var(--danger);box-shadow:0 0 12px var(--danger)}
+  .code{background:#04070b;border:1px solid rgba(255,255,255,.12);border-radius:12px;padding:12px;font-family:var(--mono);font-size:12px;white-space:pre-wrap;color:#d7f0ff;max-height:240px;overflow:auto}
+  .audio-stack{display:flex;gap:10px;align-items:center;flex-wrap:wrap} audio{width:260px;height:36px}
+  .pill{font-family:var(--mono);font-size:12px;color:#03131a;background:var(--accent);border-radius:999px;padding:4px 8px}
+  .muted{color:var(--muted);font-size:12px}
+  .kv{display:grid;grid-template-columns:140px 1fr;gap:10px}
+  hr.sep{border:0;height:1px;background:linear-gradient(90deg, transparent, rgba(255,255,255,.12), transparent);margin:12px 0}
+  .small{font-size:11px;color:var(--muted)}
 </style>
+
+<!-- nkn-sdk pinned (browser build) -->
+<script src="https://cdn.jsdelivr.net/npm/nkn-sdk@1.3.6/dist/nkn.min.js"></script>
 </head>
 <body>
 <header>
@@ -124,10 +71,21 @@
   <section class="card span-6">
     <h2>Settings</h2>
     <div class="kv">
+      <label for="transport">Transport</label>
+      <select id="transport">
+        <option value="http">HTTP(S) Direct</option>
+        <option value="nkn">NKN Relay (DM)</option>
+      </select>
+
       <label for="baseUrl">Base URL</label>
       <input id="baseUrl" type="url" placeholder="http://localhost:8123" />
+
+      <label for="relayAddr">NKN Relay Address</label>
+      <input id="relayAddr" type="text" placeholder="(paste full NKN address incl. identifier)" />
+
       <label for="apiKey">API Key</label>
       <input id="apiKey" type="text" placeholder="(optional, if server requires auth)" />
+
       <div></div>
       <div class="row">
         <button id="saveSettings">Save</button>
@@ -135,6 +93,15 @@
         <button class="ghost" id="clearSession">Clear Session</button>
       </div>
     </div>
+
+    <div class="row" style="margin-top:10px;">
+      <span class="muted">NKN: <span id="nknInfo">disconnected</span></span>
+      <div class="row" style="margin-left:auto;">
+        <button id="nknConnectBtn">Connect NKN</button>
+        <button class="ghost" id="nknDisconnectBtn">Disconnect</button>
+      </div>
+    </div>
+
     <hr class="sep">
     <div class="row">
       <button id="checkHealth">Check Health</button>
@@ -142,6 +109,9 @@
       <span class="muted">Session: <span id="sessInfo">none</span></span>
     </div>
     <div id="healthBox" class="code" style="margin-top:8px; display:none;"></div>
+    <div class="small" style="margin-top:6px;">
+      Tip: With NKN Relay, Base URL must be correct from the relay host’s perspective (e.g. <code>http://127.0.0.1:8123</code> if relay runs beside the service).
+    </div>
   </section>
 
   <!-- MODELS -->
@@ -218,6 +188,9 @@
       <span class="muted">Buffered samples: <span id="bufInfo">0</span></span>
     </div>
     <div id="streamLog" class="code" style="margin-top:8px; display:none;"></div>
+    <div class="small" style="margin-top:6px;">
+      Over NKN Relay we receive audio as <em>many small chunk DMs</em> and play them in order.
+    </div>
   </section>
 
   <!-- PLAY ON SERVER -->
@@ -256,13 +229,27 @@ curl -X POST "$BASE/speak" \
 <script>
 /* ========== STATE ========== */
 const S = {
+  transport: localStorage.getItem('tts.transport') || 'http', // 'http' | 'nkn'
   base: localStorage.getItem('tts.base') || 'http://localhost:8123',
+  relayAddr: localStorage.getItem('tts.relayAddr') || '',
   apiKey: localStorage.getItem('tts.apiKey') || '',
   sessionKey: localStorage.getItem('tts.sessionKey') || '',
   sessionExp: parseInt(localStorage.getItem('tts.sessionExp') || '0', 10),
+
+  // NKN runtime
+  nkn: {
+    client: null,
+    addr: '',
+    ready: false,
+    pending: new Map(), // single-response
+    streams: new Map(), // id -> ctx {expected,pending,leftover,onBegin,onChunk,onEnd,onResolve,onReject}
+    nextId: 1,
+    readyCbs: [],
+  },
+
   ac: null,
   scriptNode: null,
-  pcmQueue: [], // array of Float32Array chunks at AC sampleRate
+  pcmQueue: [],
   queuedSamples: 0,
   reader: null,
   aborter: null,
@@ -273,6 +260,12 @@ const S = {
 function qs(id){ return document.getElementById(id) }
 function j(x){ return JSON.stringify(x, null, 2) }
 function now(){ return Math.floor(Date.now()/1000) }
+function b64ToBytes(b64){
+  const bin = atob(b64); const len = bin.length;
+  const bytes = new Uint8Array(len);
+  for (let i=0;i<len;i++) bytes[i] = bin.charCodeAt(i);
+  return bytes;
+}
 function updateSessInfo(){
   const si = qs('sessInfo');
   if (S.sessionKey && S.sessionExp && S.sessionExp > now()) {
@@ -283,14 +276,22 @@ function updateSessInfo(){
   }
 }
 function saveSettings(){
+  S.transport = qs('transport').value;
   S.base = qs('baseUrl').value.trim() || S.base;
+  S.relayAddr = qs('relayAddr').value.trim();
   S.apiKey = qs('apiKey').value.trim();
+  localStorage.setItem('tts.transport', S.transport);
   localStorage.setItem('tts.base', S.base);
+  localStorage.setItem('tts.relayAddr', S.relayAddr);
   localStorage.setItem('tts.apiKey', S.apiKey);
   toast('Saved settings');
+  reflectTransportUI();
+  if (S.transport === 'nkn') nknEnsureClient();
 }
 function setInputsFromState(){
+  qs('transport').value = S.transport;
   qs('baseUrl').value = S.base;
+  qs('relayAddr').value = S.relayAddr;
   qs('apiKey').value  = S.apiKey;
   updateSessInfo();
 }
@@ -302,17 +303,219 @@ function toast(txt, ok=true){
 function authHeaders(h={}) {
   const headers = Object.assign({'Content-Type':'application/json'}, h);
   const fresh = S.sessionKey && S.sessionExp && S.sessionExp > now();
-  if (fresh) {
-    headers['Authorization'] = `Bearer ${S.sessionKey}`;
-  } else if (S.apiKey) {
-    headers['X-API-Key'] = S.apiKey;
-  }
+  if (fresh) headers['Authorization'] = `Bearer ${S.sessionKey}`;
+  else if (S.apiKey) headers['X-API-Key'] = S.apiKey;
   return headers;
 }
+function reflectTransportUI(){
+  const nknInfo = qs('nknInfo');
+  if (S.transport === 'nkn') {
+    nknInfo.textContent = S.nkn.ready ? `connected • ${S.nkn.addr.slice(0,10)}…` : 'connecting…';
+  } else {
+    nknInfo.textContent = 'disabled';
+  }
+}
 
-/* ========== BASIC CALLS ========== */
+/* ========== NKN LAYER ========== */
+function nknEnsureClient(){
+  if (S.nkn.client) return;
+  if (!window.nkn || !(window.nkn.MultiClient || window.nkn.Client)) {
+    toast('nkn-sdk not loaded', false);
+    return;
+  }
+  const client = new nkn.MultiClient({ identifier: 'webui', numSubClients: 4 });
+  S.nkn.client = client;
+
+  client.on('connect', () => {
+    S.nkn.addr = client.addr || '';
+    S.nkn.ready = true;
+    (S.nkn.readyCbs||[]).forEach(fn=>{ try{ fn(); }catch{} });
+    S.nkn.readyCbs.length = 0;
+    reflectTransportUI();
+    toast('NKN connected');
+  });
+
+  // Global dispatcher: single-shot and streaming (ordered by seq)
+  client.on('message', (a,b) => {
+    let src, payload;
+    if (a && typeof a === 'object' && a.payload !== undefined) { src = a.src; payload = a.payload; }
+    else { src = a; payload = b; }
+    try {
+      const txt = (payload && payload.toString) ? payload.toString() : (''+payload);
+      const msg = JSON.parse(txt);
+      const ev  = (msg && msg.event) || '';
+      const id  = msg && msg.id;
+
+      // streaming path
+      if (/^relay\.response\.(begin|chunk|end|keepalive)$/.test(ev) && id) {
+        const ctx = S.nkn.streams.get(id);
+        if (!ctx) return;
+
+        if (ev === 'relay.response.begin') {
+          ctx.expected = 1;
+          ctx.pending = new Map();
+          ctx.leftover = new Uint8Array(0);
+          ctx.onBegin && ctx.onBegin(msg);
+          return;
+        }
+
+        if (ev === 'relay.response.chunk') {
+          const seq = msg.seq|0;
+          const bytes = b64ToBytes(msg.b64 || '');
+          if (seq === ctx.expected) {
+            ctx.onChunk && ctx.onChunk(bytes, seq);
+            ctx.expected++;
+            // flush buffered
+            while (ctx.pending.has(ctx.expected)) {
+              const b = ctx.pending.get(ctx.expected);
+              ctx.pending.delete(ctx.expected);
+              ctx.onChunk && ctx.onChunk(b, ctx.expected);
+              ctx.expected++;
+            }
+          } else if (seq > ctx.expected) {
+            ctx.pending.set(seq, bytes);
+          } // else late/dup → drop
+          return;
+        }
+
+        if (ev === 'relay.response.end') {
+          if (msg.ok === false && ctx.onReject) ctx.onReject(new Error(msg.error || 'stream error'));
+          else ctx.onResolve && ctx.onResolve(msg);
+          S.nkn.streams.delete(id);
+          return;
+        }
+
+        if (ev === 'relay.response.keepalive') {
+          return;
+        }
+      }
+
+      // single-response path
+      if (ev === 'relay.response' && id) {
+        const p = S.nkn.pending.get(id);
+        if (p) { clearTimeout(p.timer); S.nkn.pending.delete(id); p.resolve(msg); }
+      }
+    } catch { /* ignore non-json */ }
+  });
+
+  client.on('close', ()=>{ S.nkn.ready=false; reflectTransportUI(); });
+}
+
+function nknWaitReady(timeoutMs=20000){
+  return new Promise((resolve, reject)=>{
+    if (S.nkn.ready) return resolve();
+    nknEnsureClient();
+    const t = setTimeout(()=>{ cleanup(); reject(new Error('NKN connect timeout')); }, timeoutMs);
+    function onReady(){ cleanup(); resolve(); }
+    function cleanup(){
+      clearTimeout(t);
+      S.nkn.readyCbs = (S.nkn.readyCbs||[]).filter(fn=>fn!==onReady);
+    }
+    (S.nkn.readyCbs = S.nkn.readyCbs || []).push(onReady);
+  });
+}
+
+async function nknSendRelayStream(reqSpec, handlers={}, timeoutMs=120000){
+  if (!S.relayAddr) throw new Error('No relay address set');
+  await nknWaitReady();
+  const client = S.nkn.client;
+  const id = 'web-' + Date.now() + '-' + (S.nkn.nextId++);
+
+  const ctx = {
+    onBegin: handlers.onBegin || null,
+    onChunk: handlers.onChunk || null,
+    onEnd:   handlers.onEnd   || null,
+    leftover: new Uint8Array(0),
+    expected: 1,
+    pending: new Map(),
+    onResolve: null,
+    onReject: null,
+  };
+
+  const p = new Promise((resolve, reject)=>{
+    ctx.onResolve = (m)=>{ handlers.onEnd && handlers.onEnd(m); resolve(m); };
+    ctx.onReject  = (e)=>{ reject(e); };
+  });
+
+  S.nkn.streams.set(id, ctx);
+
+  // explicit stream hint
+  const data = { event:'http.request', id, req: Object.assign({ stream:'chunks' }, reqSpec) };
+
+  const timer = setTimeout(()=>{
+    if (S.nkn.streams.has(id)) {
+      S.nkn.streams.delete(id);
+      ctx.onReject && ctx.onReject(new Error('NKN relay timeout'));
+    }
+  }, timeoutMs);
+
+  p.finally(()=> clearTimeout(timer));
+
+  await client.send(S.relayAddr, JSON.stringify(data), { noReply: true, maxHoldingSeconds: 120 });
+  return p;
+}
+
+async function nknSendRelay(reqSpec, timeoutMs=45000){
+  if (!S.relayAddr) throw new Error('No relay address set');
+  await nknWaitReady();
+  const client = S.nkn.client;
+  const id = 'web-' + Date.now() + '-' + (S.nkn.nextId++);
+  const data = { event:'http.request', id, req: reqSpec };
+  return new Promise((resolve, reject)=>{
+    const timer = setTimeout(()=>{
+      S.nkn.pending.delete(id);
+      reject(new Error('NKN relay timeout'));
+    }, timeoutMs);
+    S.nkn.pending.set(id, { resolve, reject, timer });
+    client.send(S.relayAddr, JSON.stringify(data), { noReply: true, maxHoldingSeconds: 120 })
+      .catch(err=>{
+        clearTimeout(timer);
+        S.nkn.pending.delete(id);
+        reject(err);
+      });
+  });
+}
+
+async function nknFetchJSON(path, method='GET', bodyObj=null, headers={}){
+  const req = {
+    url: S.base.replace(/\/+$/,'') + path,
+    method,
+    headers,
+    timeout_ms: 45000,
+  };
+  if (bodyObj !== null) req.json = bodyObj;
+  const resp = await nknSendRelay(req, req.timeout_ms);
+  if (!resp || resp.ok === false) throw new Error((resp && resp.error) || ('HTTP '+(resp && resp.status)));
+  if (resp.json !== null && resp.json !== undefined) return resp.json;
+  if (resp.body_b64){
+    try {
+      const bytes = b64ToBytes(resp.body_b64);
+      const txt = new TextDecoder('utf-8').decode(bytes);
+      return JSON.parse(txt);
+    } catch(e){
+      throw new Error('Non-JSON body over relay');
+    }
+  }
+  return null;
+}
+async function nknFetchBlob(fullUrl){
+  const req = { url: fullUrl, method: 'GET', headers: authHeaders({}), timeout_ms: 90000 };
+  const resp = await nknSendRelay(req, req.timeout_ms);
+  if (!resp || resp.ok === false) throw new Error((resp && resp.error) || ('HTTP '+(resp && resp.status)));
+  const hdrs = resp.headers || {};
+  const ct = hdrs['content-type'] || hdrs['Content-Type'] || 'application/octet-stream';
+  if (!resp.body_b64) throw new Error('No body from relay');
+  const bytes = b64ToBytes(resp.body_b64);
+  if (resp.truncated) toast('Relay truncated body — increase RELAY_MAX_BODY_B', false);
+  return new Blob([bytes], { type: ct });
+}
+
+/* ========== BASIC CALLS (transport-aware) ========== */
 async function callJSON(path, bodyObj, extraHeaders) {
-  const res = await fetch(S.base + path, {
+  if (S.transport === 'nkn') {
+    return nknFetchJSON(path, 'POST', bodyObj||{}, authHeaders(extraHeaders||{}));
+  }
+  const res = await fetch(S.base.replace(/\/+$/,'') + path, {
     method: 'POST',
     headers: authHeaders(extraHeaders),
     body: JSON.stringify(bodyObj||{})
@@ -321,7 +524,10 @@ async function callJSON(path, bodyObj, extraHeaders) {
   return res.json();
 }
 async function getJSON(path, extraHeaders) {
-  const res = await fetch(S.base + path, { headers: authHeaders(extraHeaders) });
+  if (S.transport === 'nkn') {
+    return nknFetchJSON(path, 'GET', null, authHeaders(extraHeaders||{}));
+  }
+  const res = await fetch(S.base.replace(/\/+$/,'') + path, { headers: authHeaders(extraHeaders) });
   if (!res.ok) throw new Error(`${res.status} ${res.statusText}`);
   return res.json();
 }
@@ -347,11 +553,10 @@ async function doModels(){
     const mb = qs('modelsBox');
     mb.style.display = 'block';
     mb.textContent = j(data);
-    // populate datalist
     const dl = qs('modelList'); dl.innerHTML = '';
     (data.models || []).forEach(m=>{
       const opt = document.createElement('option');
-      opt.value = m.name;
+      opt.value = m.name || m.model || '';
       dl.appendChild(opt);
     });
     toast('Loaded models');
@@ -364,7 +569,7 @@ async function doModels(){
 
 /* ========== AUTH: HANDSHAKE ========== */
 async function doHandshake(){
-  if (!S.apiKey) { toast('Enter API key first', false); return; }
+  if (!S.apiKey && !(S.sessionKey && S.sessionExp > now())) { toast('Enter API key first', false); return; }
   try {
     const data = await callJSON('/handshake', { api_key:S.apiKey });
     S.sessionKey = data.session_key;
@@ -394,14 +599,17 @@ async function doFile(){
   try {
     const body = { text, mode:'file', format, volume };
     if (model) body.model = model;
+
     const data = await callJSON('/speak', body);
     const log = qs('fileLog'); log.style.display='block'; log.textContent=j(data);
     const f = (data.files && data.files[0]) ? data.files[0] : null;
     if (!f) { toast('No file returned', false); return; }
-    // fetch file to create a blob URL (works across CORS)
-    const fileUrl = S.base + (f.url || '');
-    const r = await fetch(fileUrl, { headers: authHeaders() });
-    const blob = await r.blob();
+
+    const fileUrl = S.base.replace(/\/+$/,'') + (f.url || '');
+    let blob;
+    if (S.transport === 'nkn') blob = await nknFetchBlob(fileUrl);
+    else { const r = await fetch(fileUrl, { headers: authHeaders() }); blob = await r.blob(); }
+
     const objUrl = URL.createObjectURL(blob);
     const a = qs('fileAudio'); a.src = objUrl; a.play().catch(()=>{});
     const dl = qs('fileDownload'); dl.href = objUrl; dl.download = f.filename || 'tts';
@@ -417,12 +625,8 @@ async function doFile(){
 /* ========== STREAM MODE (RAW PCM → WebAudio) ========== */
 function ensureAudioContext() {
   if (S.ac) return S.ac;
-  try {
-    // Try to match PCM rate (22050). If unsupported, browser will choose closest rate.
-    S.ac = new (window.AudioContext || window.webkitAudioContext)({ sampleRate: S.targetPcmRate });
-  } catch {
-    S.ac = new (window.AudioContext || window.webkitAudioContext)();
-  }
+  try { S.ac = new (window.AudioContext || window.webkitAudioContext)({ sampleRate: S.targetPcmRate }); }
+  catch { S.ac = new (window.AudioContext || window.webkitAudioContext)(); }
   const node = S.ac.createScriptProcessor(4096, 1, 1);
   node.onaudioprocess = e => {
     const out = e.outputBuffer.getChannelData(0);
@@ -433,13 +637,9 @@ function ensureAudioContext() {
       const head = S.pcmQueue[0];
       const take = Math.min(need, head.length);
       out.set(head.subarray(0, take), off);
-      if (take === head.length) {
-        S.pcmQueue.shift();
-      } else {
-        S.pcmQueue[0] = head.subarray(take);
-      }
-      S.queuedSamples -= take;
-      off += take; need -= take;
+      if (take === head.length) S.pcmQueue.shift();
+      else S.pcmQueue[0] = head.subarray(take);
+      S.queuedSamples -= take; off += take; need -= take;
     }
     qs('bufInfo').textContent = S.queuedSamples.toString();
   };
@@ -448,106 +648,110 @@ function ensureAudioContext() {
   qs('acInfo').textContent = `${S.ac.sampleRate} Hz`;
   return S.ac;
 }
-function int16ToFloat32(int16) {
-  const out = new Float32Array(int16.length);
-  for (let i=0;i<int16.length;i++) out[i] = Math.max(-1, Math.min(1, int16[i]/32768));
-  return out;
-}
-function resampleLinear(input, fromRate, toRate) {
+function int16ToFloat32(int16){ const out = new Float32Array(int16.length); for (let i=0;i<int16.length;i++) out[i] = Math.max(-1, Math.min(1, int16[i]/32768)); return out; }
+function resampleLinear(input, fromRate, toRate){
   if (fromRate === toRate) return input;
-  const ratio = toRate / fromRate;
-  const newLen = Math.round(input.length * ratio);
+  const ratio = toRate / fromRate; const newLen = Math.round(input.length * ratio);
   const out = new Float32Array(newLen);
-  for (let i=0;i<newLen;i++){
-    const pos = i/ratio;
-    const i0 = Math.floor(pos);
-    const i1 = Math.min(i0+1, input.length-1);
-    const frac = pos - i0;
-    out[i] = input[i0]*(1-frac) + input[i1]*frac;
-  }
+  for (let i=0;i<newLen;i++){ const pos=i/ratio; const i0=Math.floor(pos); const i1=Math.min(i0+1,input.length-1); const frac=pos-i0; out[i]=input[i0]*(1-frac)+input[i1]*frac; }
   return out;
 }
-function enqueuePcmF32(f32) {
-  S.pcmQueue.push(f32);
-  S.queuedSamples += f32.length;
-  qs('bufInfo').textContent = S.queuedSamples.toString();
-}
-async function doStream(){
+function enqueuePcmF32(f32){ S.pcmQueue.push(f32); S.queuedSamples += f32.length; qs('bufInfo').textContent = S.queuedSamples.toString(); }
+
+async function doStreamHTTP(){
   const text   = qs('streamText').value.trim() || 'Streaming from the TTS service.';
   const volume = parseFloat(qs('streamVol').value || '1') || 1.0;
   let   format = qs('streamFormat').value;
   const model  = qs('modelName').value.trim();
-  // We implement low-latency playback for RAW; enforce it for now.
-  if (format !== 'raw') {
-    format = 'raw';
-    qs('streamFormat').value = 'raw';
-  }
-
-  ensureAudioContext();
-  await S.ac.resume();
-
-  // clean previous stream if any
+  if (format !== 'raw') { format = 'raw'; qs('streamFormat').value = 'raw'; }
+  ensureAudioContext(); await S.ac.resume();
   if (S.aborter) S.aborter.abort();
   S.pcmQueue.length = 0; S.queuedSamples = 0;
-
-  const body = { text, mode:'stream', format, volume };
-  if (model) body.model = model;
-
+  const body = { text, mode:'stream', format, volume }; if (model) body.model = model;
   const ctrl = new AbortController(); S.aborter = ctrl;
   const log = qs('streamLog'); log.style.display='block'; log.textContent='(streaming)';
-
   try {
-    const res = await fetch(S.base + '/speak', {
-      method: 'POST',
-      headers: authHeaders({'Content-Type':'application/json'}),
-      body: JSON.stringify(body),
-      signal: ctrl.signal
+    const res = await fetch(S.base.replace(/\/+$/,'') + '/speak', {
+      method: 'POST', headers: authHeaders({'Content-Type':'application/json'}),
+      body: JSON.stringify(body), signal: ctrl.signal
     });
     if (!res.ok || !res.body) throw new Error(`${res.status} ${res.statusText}`);
-
     const reader = res.body.getReader(); S.reader = reader;
     let leftover = new Uint8Array(0);
     const targetRate = S.ac.sampleRate || S.targetPcmRate;
-
     while (true) {
       const { value, done } = await reader.read();
-      if (done) break;
-      if (!value || !value.byteLength) continue;
-
-      // glue leftover + new
+      if (done) break; if (!value || !value.byteLength) continue;
       const buf = new Uint8Array(leftover.length + value.length);
-      buf.set(leftover, 0);
-      buf.set(value, leftover.length);
-      const total = buf.length;
-      const wholeFrames = Math.floor(total / 2); // 16-bit mono
+      buf.set(leftover, 0); buf.set(value, leftover.length);
+      const wholeFrames = Math.floor(buf.length / 2);
       const evenBytes = wholeFrames * 2;
       const bodyBytes = buf.subarray(0, evenBytes);
-      leftover = buf.subarray(evenBytes); // preserve odd byte
-
-      // int16 -> float32
+      leftover = buf.subarray(evenBytes);
       const view = new DataView(bodyBytes.buffer, bodyBytes.byteOffset, bodyBytes.byteLength);
       const int16 = new Int16Array(wholeFrames);
       for (let i=0;i<wholeFrames;i++) int16[i] = view.getInt16(i*2, true);
       let f32 = int16ToFloat32(int16);
-
-      // resample if necessary
       if (targetRate !== 22050) f32 = resampleLinear(f32, 22050, targetRate);
-
       enqueuePcmF32(f32);
     }
     log.textContent = '(stream ended)';
     toast('Stream complete');
   } catch(e){
-    if (e.name !== 'AbortError') {
-      log.textContent = 'Stream error: ' + e.message;
-      toast('Stream error', false);
-    } else {
-      log.textContent = '(stopped)';
-    }
-  } finally {
-    S.reader = null; S.aborter = null;
+    if (e.name !== 'AbortError') { log.textContent = 'Stream error: ' + e.message; toast('Stream error', false); }
+    else { log.textContent = '(stopped)'; }
+  } finally { S.reader = null; S.aborter = null; }
+}
+
+async function doStreamNKN(){
+  const text   = qs('streamText').value.trim() || 'Streaming from the TTS service.';
+  const volume = parseFloat(qs('streamVol').value || '1') || 1.0;
+  const model  = qs('modelName').value.trim();
+
+  ensureAudioContext(); await S.ac.resume();
+  S.pcmQueue.length = 0; S.queuedSamples = 0;
+
+  const log = qs('streamLog'); log.style.display='block'; log.textContent='(requesting via relay, chunked)';
+  const req = {
+    url: S.base.replace(/\/+$/,'') + '/speak',
+    method: 'POST',
+    headers: authHeaders({'Content-Type':'application/json', 'X-Relay-Stream':'chunks'}),
+    json: { text, mode:'stream', format:'raw', volume, ...(model?{model}:{}) },
+    timeout_ms: 120000
+  };
+
+  // per-stream local decoding helper (respects odd bytes)
+  let leftover = new Uint8Array(0);
+  function handleBytes(bytes){
+    const buf = new Uint8Array(leftover.length + bytes.length);
+    buf.set(leftover, 0); buf.set(bytes, leftover.length);
+    const wholeFrames = Math.floor(buf.length / 2);
+    const evenBytes = wholeFrames * 2;
+    const bodyBytes = buf.subarray(0, evenBytes);
+    leftover = buf.subarray(evenBytes);
+    if (!evenBytes) return;
+    const view = new DataView(bodyBytes.buffer, bodyBytes.byteOffset, bodyBytes.byteLength);
+    const int16 = new Int16Array(wholeFrames);
+    for (let i=0;i<wholeFrames;i++) int16[i] = view.getInt16(i*2, true);
+    let f32 = int16ToFloat32(int16);
+    const targetRate = S.ac.sampleRate || S.targetPcmRate;
+    if (targetRate !== 22050) f32 = resampleLinear(f32, 22050, targetRate);
+    enqueuePcmF32(f32);
+  }
+
+  let chunkCount = 0;
+  try {
+    await nknSendRelayStream(req, {
+      onBegin: (m)=>{ chunkCount = 0; log.textContent = `(stream begin ${m.status||''})`; },
+      onChunk: (bytes)=>{ handleBytes(bytes); chunkCount++; if (chunkCount % 8 === 0) log.textContent = `(chunks: ${chunkCount})`; },
+      onEnd:   (m)=>{ log.textContent = `(stream ended, chunks: ${chunkCount})`; toast('Stream complete'); },
+    }, req.timeout_ms);
+  } catch(e){
+    log.textContent = 'Stream error: ' + (e && e.message ? e.message : e);
+    toast('Stream error', false);
   }
 }
+
 function stopStream(){
   if (S.aborter) S.aborter.abort();
   S.pcmQueue.length = 0; S.queuedSamples = 0;
@@ -601,7 +805,8 @@ function bindExamples(){
           doFile(); break;
         case 'hello-stream':
           qs('streamText').value = 'Hello! This is a live stream test.';
-          doStream(); break;
+          S.transport === 'nkn' ? doStreamNKN() : doStreamHTTP();
+          break;
         case 'lorem-file':
           qs('fileText').value = 'Lorem ipsum dolor sit amet, consectetur adipiscing elit. Integer accumsan, sapien sit amet.';
           doFile(); break;
@@ -614,23 +819,41 @@ function bindExamples(){
 }
 
 /* ========== INIT ========== */
+async function firstLoad(){
+  if (S.transport === 'nkn') {
+    try { await nknWaitReady(); } catch { /* ignore; UI shows connecting… */ }
+  }
+  doHealth().then(doModels).catch(()=>{});
+}
+
 function init(){
   setInputsFromState();
-  // Events
+  reflectTransportUI();
+
   qs('saveSettings').addEventListener('click', saveSettings);
   qs('handshakeBtn').addEventListener('click', doHandshake);
   qs('clearSession').addEventListener('click', clearSession);
   qs('checkHealth').addEventListener('click', doHealth);
   qs('loadModels').addEventListener('click', doModels);
   qs('fileGo').addEventListener('click', doFile);
-  qs('streamGo').addEventListener('click', doStream);
+  qs('streamGo').addEventListener('click', ()=> S.transport==='nkn' ? doStreamNKN() : doStreamHTTP());
   qs('streamStop').addEventListener('click', stopStream);
   qs('playGo').addEventListener('click', doPlay);
   qs('pullBtn').addEventListener('click', doPull);
-  bindExamples();
 
-  // First health/model fetch
-  doHealth().then(doModels).catch(()=>{});
+  qs('transport').addEventListener('change', (e)=>{
+    S.transport = e.target.value; localStorage.setItem('tts.transport', S.transport); reflectTransportUI();
+    if (S.transport === 'nkn') nknEnsureClient();
+  });
+  qs('nknConnectBtn').addEventListener('click', ()=>{ nknEnsureClient(); });
+  qs('nknDisconnectBtn').addEventListener('click', ()=>{
+    try { S.nkn.client && S.nkn.client.close(); } catch {}
+    S.nkn.client=null; S.nkn.ready=false; reflectTransportUI();
+  });
+
+  bindExamples();
+  if (S.transport === 'nkn') nknEnsureClient();
+  firstLoad();
   qs('status').innerHTML = `<span class="dot ok"></span><span>Ready</span>`;
 }
 document.addEventListener('DOMContentLoaded', init);
