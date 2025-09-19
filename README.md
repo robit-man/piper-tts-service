@@ -10,7 +10,7 @@ git clone --depth=1 https://github.com/robit-man/piper-tts-service.git && cd pip
 ```
 Then, in another terminal, test with
 ```
-curl -s -X POST "http://127.0.0.1:8123/speak"   -H 'Content-Type: application/json'   -d '{"text":"Example playback over.","mode":"play"}' | jq
+curl -s -X POST "http://127.0.0.1:8123/speak"   -H 'Content-Type: application/json'   -d '{"text":"Example streamed playback over system sink.","mode":"play"}' | jq
 ```
 
 This assumes you’ve saved and started the service:
