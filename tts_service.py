@@ -13,6 +13,14 @@ First run:
 Subsequent runs:
   - Fast start (re-enters existing venv, no re-install)
 
+HTTPS support:
+  - CLI:  --ssl[=generate|adhoc]   (default "generate" if no value)
+  - .env: TTS_SSL=0|1|generate|adhoc
+          TTS_SSL_CERT=path/to/cert.pem   (when TTS_SSL=1)
+          TTS_SSL_KEY=path/to/key.pem     (when TTS_SSL=1)
+          TTS_SSL_EXTRA_DNS_SANS=host1,host2  (optional)
+          TTS_SSL_REFRESH=0|1  (re-generate self-signed on startup)
+
 HTTP API (default bind 0.0.0.0:8123)
 ------------------------------------
 Auth:
@@ -49,7 +57,6 @@ Endpoints:
 
       mode="stream" → returns a streaming HTTP response of audio bytes
         headers: Content-Type: audio/ogg (or audio/L16 for raw; audio/wav for wav)
-        (use curl/wget/browser to receive a continuous stream)
 
   POST /models/pull    (requires auth; for adding more voices)
       JSON:
@@ -84,36 +91,31 @@ curl -s -X POST http://localhost:8123/speak \
   -H 'Content-Type: application/json' \
   -d '{"text":"This will play on the server host.","mode":"play"}' | jq
 """
-import os, sys, platform, shutil, subprocess, json, time, uuid, threading, re, math
-from datetime import datetime, timedelta
+import os, sys, platform, shutil, subprocess, json, time, uuid, threading, re, math, ssl, socket
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 # ─────────────────────────────────────────────────────────────────────────────
 # 0) Minimal re-exec into a local venv (create once, then fast-start)
 # ─────────────────────────────────────────────────────────────────────────────
 VENV_DIR = Path.cwd() / ".venv"
-REQUIRED_PY = (3, 10)  # prefer 3.10+, but will proceed with current if >=3.9
 
 def _in_venv() -> bool:
     base = getattr(sys, "base_prefix", None)
     return base is not None and sys.prefix != base
 
 def _ensure_venv_and_reexec():
-    # Proceed with current interpreter if >=3.9; prefer as-is.
     if sys.version_info < (3, 9):
         print("ERROR: Python 3.9+ required.", file=sys.stderr)
         sys.exit(1)
 
     if not _in_venv():
-        # Use current python to make the venv
         python = sys.executable
         if not VENV_DIR.exists():
             print(f"[PROCESS] Creating virtualenv at {VENV_DIR}…")
             subprocess.check_call([python, "-m", "venv", str(VENV_DIR)])
-            # Upgrade pip once
             pip_bin = str(VENV_DIR / ("Scripts/pip.exe" if os.name == "nt" else "bin/pip"))
             subprocess.check_call([pip_bin, "install", "--upgrade", "pip"])
-        # Re-exec inside that venv
         py_bin = str(VENV_DIR / ("Scripts/python.exe" if os.name == "nt" else "bin/python"))
         new_env = os.environ.copy()
         new_env["VIRTUAL_ENV"] = str(VENV_DIR)
@@ -125,22 +127,23 @@ _ensure_venv_and_reexec()
 
 # From here on, we are inside the venv.
 # ─────────────────────────────────────────────────────────────────────────────
-# 1) First-run pip deps, .env, config, and Piper + default voice setup
+# 1) First-run pip deps, .env, folders, Piper + default voice setup
 # ─────────────────────────────────────────────────────────────────────────────
 SETUP_MARKER = Path(".tts_setup_complete")
 SCRIPT_DIR   = Path(__file__).resolve().parent
 OUT_DIR      = SCRIPT_DIR / "tts_out"
 VOICES_DIR   = SCRIPT_DIR / "voices"
 PIPER_DIR    = SCRIPT_DIR / "piper"
+TLS_DIR      = SCRIPT_DIR / "tls"   # default location for generated certs
 
 def _pip(*pkgs):
     subprocess.check_call([sys.executable, "-m", "pip", "install", *pkgs])
 
 if not SETUP_MARKER.exists():
     print("[PROCESS] Installing Python dependencies…")
-    # Keep deps minimal
     _pip("--upgrade", "pip")
-    _pip("flask", "flask-cors", "numpy", "python-dotenv")
+    # Include cryptography for self-signed cert generation
+    _pip("flask", "flask-cors", "numpy", "python-dotenv", "cryptography")
 
     # Create .env on first run (with a default API key)
     env_path = SCRIPT_DIR / ".env"
@@ -153,6 +156,14 @@ if not SETUP_MARKER.exists():
             "TTS_REQUIRE_AUTH=0\n"
             "TTS_SESSION_TTL=1800\n"
             "TTS_ALLOW_PULL=1\n"
+            "TTS_FORCE_LOCAL=0\n"
+            "\n"
+            "# HTTPS options: 0|1|generate|adhoc\n"
+            "TTS_SSL=0\n"
+            "TTS_SSL_CERT=tls/cert.pem\n"
+            "TTS_SSL_KEY=tls/key.pem\n"
+            "TTS_SSL_EXTRA_DNS_SANS=\n"
+            "TTS_SSL_REFRESH=0\n"
             "\n"
             "# Defaults for Piper + default voice\n"
             "PIPER_BASE_URL=https://github.com/rhasspy/piper/releases/download/2023.11.14-2/\n"
@@ -176,8 +187,8 @@ if not SETUP_MARKER.exists():
     OUT_DIR.mkdir(parents=True, exist_ok=True)
     VOICES_DIR.mkdir(parents=True, exist_ok=True)
     PIPER_DIR.mkdir(parents=True, exist_ok=True)
+    TLS_DIR.mkdir(parents=True, exist_ok=True)
 
-    # Write marker
     SETUP_MARKER.write_text("ok")
     print("[SUCCESS] Base Python setup complete. Restarting…")
     os.execv(sys.executable, [sys.executable] + sys.argv)
@@ -192,6 +203,21 @@ from dotenv import load_dotenv
 
 load_dotenv(SCRIPT_DIR / ".env")
 
+# Parse CLI --ssl (optional value)
+def _parse_cli_ssl():
+    mode = None
+    args = sys.argv[1:]
+    for i, a in enumerate(args):
+        if a == "--ssl":
+            mode = "generate"  # default if no value
+            break
+        if a.startswith("--ssl="):
+            mode = a.split("=", 1)[1].strip() or "generate"
+            break
+    return (mode or "").lower()
+
+CLI_SSL_MODE = _parse_cli_ssl()
+
 # Env/config
 TTS_API_KEY       = os.getenv("TTS_API_KEY", "").strip()
 TTS_BIND          = os.getenv("TTS_BIND", "0.0.0.0")
@@ -199,6 +225,15 @@ TTS_PORT          = int(os.getenv("TTS_PORT", "8123"))
 TTS_REQUIRE_AUTH  = os.getenv("TTS_REQUIRE_AUTH", "0") == "1"
 TTS_SESSION_TTL   = int(os.getenv("TTS_SESSION_TTL", "1800"))  # seconds
 TTS_ALLOW_PULL    = os.getenv("TTS_ALLOW_PULL", "1") == "1"
+TTS_FORCE_LOCAL   = os.getenv("TTS_FORCE_LOCAL", "0") == "1"
+
+# TLS env
+TTS_SSL_MODE_ENV  = os.getenv("TTS_SSL", "0").lower()
+TTS_SSL_MODE      = (CLI_SSL_MODE or TTS_SSL_MODE_ENV or "0").lower()
+TTS_SSL_CERT      = os.getenv("TTS_SSL_CERT", str(TLS_DIR / "cert.pem")).strip()
+TTS_SSL_KEY       = os.getenv("TTS_SSL_KEY",  str(TLS_DIR / "key.pem")).strip()
+TTS_SSL_SANS      = [h.strip() for h in os.getenv("TTS_SSL_EXTRA_DNS_SANS","").split(",") if h.strip()]
+TTS_SSL_REFRESH   = os.getenv("TTS_SSL_REFRESH","0") == "1"
 
 PIPER_BASE_URL    = os.getenv("PIPER_BASE_URL", "https://github.com/rhasspy/piper/releases/download/2023.11.14-2/")
 PIPER_EXE_NAME    = os.getenv("PIPER_EXE", "piper")
@@ -281,7 +316,6 @@ def _ensure_piper():
     return piper_exe
 
 def _ensure_default_voice():
-    # Put default voice files at script root for backwards compatibility
     json_path  = SCRIPT_DIR / DEF_JSON_NAME
     onnx_path  = SCRIPT_DIR / DEF_MODEL_NAME
     if not json_path.exists() and DEF_JSON_URL:
@@ -293,69 +327,51 @@ def _ensure_default_voice():
     return onnx_path, json_path
 
 def _scan_models():
-    """Return list of dicts describing discovered voices."""
     models = []
-    # a) default in top-level (compat)
     for p in SCRIPT_DIR.glob("*.onnx"):
-        base = p.stem  # name without .onnx
+        base = p.stem
         j = SCRIPT_DIR / f"{base}.onnx.json"
         if j.exists():
             st = p.stat()
-            models.append({
-                "name": base, "onnx": str(p), "json": str(j),
-                "size_bytes": st.st_size, "mtime": st.st_mtime
-            })
-    # b) voices dir
+            models.append({"name": base, "onnx": str(p), "json": str(j),
+                           "size_bytes": st.st_size, "mtime": st.st_mtime})
     for p in VOICES_DIR.glob("*.onnx"):
         base = p.stem
         j = VOICES_DIR / f"{base}.onnx.json"
         if j.exists():
             st = p.stat()
-            models.append({
-                "name": base, "onnx": str(p), "json": str(j),
-                "size_bytes": st.st_size, "mtime": st.st_mtime
-            })
-    # c) ensure default pair present (only add if existing and not already found)
+            models.append({"name": base, "onnx": str(p), "json": str(j),
+                           "size_bytes": st.st_size, "mtime": st.st_mtime})
     onnx_path, json_path = _ensure_default_voice()
     if onnx_path.exists() and json_path.exists():
         base = onnx_path.stem
         if not any(m["onnx"] == str(onnx_path) for m in models):
             st = onnx_path.stat()
-            models.append({
-                "name": base, "onnx": str(onnx_path), "json": str(json_path),
-                "size_bytes": st.st_size, "mtime": st.st_mtime
-            })
-    # sort by name
+            models.append({"name": base, "onnx": str(onnx_path), "json": str(json_path),
+                           "size_bytes": st.st_size, "mtime": st.st_mtime})
     models.sort(key=lambda m: m["name"])
     return models
 
 def _resolve_model(spec: str|None):
-    """Given a model 'name' or a direct path to .onnx, return (onnx_path, json_path)."""
     if not spec:
-        # default pair
         onnx_path, json_path = _ensure_default_voice()
         if onnx_path.exists() and json_path.exists():
             return str(onnx_path), str(json_path)
         raise FileNotFoundError("Default ONNX voice not found.")
-    # If spec looks like a path to .onnx, try to pair with .onnx.json
     p = Path(spec)
     if p.suffix.lower() == ".onnx" and p.exists():
         j = p.with_suffix(".onnx.json")
-        if not j.exists():
-            # also look in same dir for a matching .json exactly
-            candidate = p.parent / (p.stem + ".onnx.json")
-            if candidate.exists():
-                j = candidate
+        candidate = p.parent / (p.stem + ".onnx.json")
+        if not j.exists() and candidate.exists():
+            j = candidate
         if not j.exists():
             raise FileNotFoundError(f"Missing JSON sidecar for {p.name} (.onnx.json).")
         return str(p), str(j)
-    # Otherwise, treat as a base name; search scan list
     for m in _scan_models():
         if m["name"] == spec:
             return m["onnx"], m["json"]
     raise FileNotFoundError(f"Voice '{spec}' not found. See /models.")
 
-# Ensure piper + default voice once per run
 PIPER_EXE = _ensure_piper()
 _ensure_default_voice()
 
@@ -363,7 +379,11 @@ _ensure_default_voice()
 # 4) HTTP server, auth, sessions, and TTS plumbing
 # ─────────────────────────────────────────────────────────────────────────────
 app = Flask(__name__)
-CORS(app)
+# Allow CORS broadly (including auth headers) for cross-port HTTPS calls
+CORS(app, resources={r"/*": {"origins": "*"}},
+     supports_credentials=False,
+     expose_headers=["Content-Disposition"],
+     allow_headers=["Content-Type", "Authorization", "X-API-Key"])
 
 # simple in-memory session store
 _sessions = {}  # {session_key: expiry_datetime}
@@ -372,11 +392,9 @@ _sessions_lock = threading.Lock()
 def _auth_ok(req) -> bool:
     if not TTS_REQUIRE_AUTH:
         return True
-    # Allow direct API key
     api = req.headers.get("X-API-Key", "").strip()
     if api and TTS_API_KEY and api == TTS_API_KEY:
         return True
-    # Allow Bearer session tokens
     auth = req.headers.get("Authorization","").strip()
     if auth.lower().startswith("bearer "):
         tok = auth.split(None,1)[1].strip()
@@ -394,10 +412,8 @@ def _ensure_tools():
 
 _ensure_tools()
 
-# Text splitting (chunker)
 _SENT_END = re.compile(r'([\.!?])')
 def _split_text(text: str, max_len: int = 500):
-    # normalize and remove emoji that may upset synthesizer
     emoji_pat = re.compile("[" "\U0001F600-\U0001F64F" "\U0001F300-\U0001F5FF" "\U0001F680-\U0001F6FF" "\U0001F1E0-\U0001F1FF" "]+", re.UNICODE)
     clean = emoji_pat.sub('', text).replace("*"," ").strip()
     if not clean:
@@ -423,7 +439,6 @@ def _split_text(text: str, max_len: int = 500):
         if buf: chunks.append(buf)
     return chunks
 
-# Core synth helpers
 def _piper_cmd(json_path: str, onnx_path: str, debug=False):
     cmd = [str(PIPER_EXE), "-m", onnx_path, "--json-input", "--output_raw"]
     if debug:
@@ -438,13 +453,12 @@ def _encode_cmd(fmt="ogg"):
     if fmt == "wav":
         return ["ffmpeg","-y","-f","s16le","-ar","22050","-ac","1","-i","pipe:0","-f","wav","pipe:1"], "audio/wav"
     if fmt == "raw":
-        return None, "audio/L16"  # 16-bit linear PCM (no container)
+        return None, "audio/L16"
     raise ValueError("format must be one of: ogg, wav, raw")
 
 _play_lock = threading.Lock()
 
 def _play_pcm_stream(raw_iter):
-    """Feed 16-bit mono 22050Hz PCM bytes to aplay/ffplay."""
     if shutil.which("aplay"):
         cmd_play = ["aplay","-r","22050","-f","S16_LE","-c","1"]
     elif shutil.which("ffplay"):
@@ -463,14 +477,12 @@ def _play_pcm_stream(raw_iter):
             p.wait()
 
 def _generate_pcm_chunks(text: str, json_path: str, onnx_path: str, volume: float = 1.0):
-    """Yield raw PCM16 mono 22050Hz bytes for the given text."""
-    # Piper consumes a single JSON text; we’ll call it per chunk to avoid giant buffers.
     chunks = _split_text(text, max_len=500)
     if not chunks:
         return
     debug = False
     for c in chunks:
-        cmd, base_payload = _piper_cmd(json_path, onnx_path, debug=debug)
+        cmd, _ = _piper_cmd(json_path, onnx_path, debug=debug)
         payload = json.dumps({"text": c, "config": json_path, "model": onnx_path}).encode("utf-8")
         p = subprocess.Popen(cmd, stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=(subprocess.PIPE if debug else subprocess.DEVNULL))
         try:
@@ -489,7 +501,6 @@ def _generate_pcm_chunks(text: str, json_path: str, onnx_path: str, volume: floa
                 if err: log(f"[Piper STDERR] {err}", "WARNING")
 
 def _pcm_to_file(pcm_iter, out_path: Path, fmt="ogg"):
-    """Encode PCM to ogg/wav using ffmpeg and write file."""
     fmt = fmt.lower()
     if fmt == "raw":
         with open(out_path, "wb") as f:
@@ -502,7 +513,6 @@ def _pcm_to_file(pcm_iter, out_path: Path, fmt="ogg"):
         for b in pcm_iter:
             p2.stdin.write(b)
         p2.stdin.close()
-        # write stdout to file
         with open(out_path, "wb") as f:
             while True:
                 o = p2.stdout.read(4096)
@@ -560,7 +570,6 @@ def models_pull():
         u_json = str(data.get("onnx_json_url","")).strip()
         if not u_onnx or not u_json:
             return jsonify({"error":"onnx_model_url and onnx_json_url required"}), 400
-        # default name from file base
         if not name:
             name = Path(u_onnx).name.replace(".onnx","")
         onnx_path = VOICES_DIR / f"{name}.onnx"
@@ -599,9 +608,7 @@ def speak():
 
         onnx_path, json_path = _resolve_model(model)
 
-        # Build generators
         if split == "none":
-            # synthesize as one chunk (Piper prefers shorter spans but we allow)
             def one_chunk():
                 cmd, _ = _piper_cmd(json_path, onnx_path, debug=False)
                 payload = json.dumps({"text": text, "config": json_path, "model": onnx_path}).encode("utf-8")
@@ -619,11 +626,9 @@ def speak():
             chunk_count = 1
         else:
             pcm_iter = _generate_pcm_chunks(text, json_path, onnx_path, volume=volume)
-            # (We won’t pre-count chunks for stream/play; we will for file.)
             chunk_count = len(_split_text(text, max_len=500))
 
         if mode == "file":
-            # Write a single file (concatenate chunks). Default OGG.
             OUT_DIR.mkdir(parents=True, exist_ok=True)
             ext = {"ogg":".ogg","wav":".wav","raw":".raw"}.get(fmt, ".ogg")
             fname = f"{uuid.uuid4().hex}{ext}"
@@ -632,18 +637,13 @@ def speak():
             url = f"/files/{fname}"
             return jsonify({"ok":True,"files":[{"filename":fname,"url":url,"path":str(out_path)}], "chunks":chunk_count})
 
-            # (If you want per-sentence files, you could iterate split text and build an array.)
-
         elif mode == "play":
-            # Play through host speakers (aplay/ffplay)
             _play_pcm_stream(pcm_iter)
             return jsonify({"ok":True,"played_chunks":chunk_count})
 
         elif mode == "stream":
-            # Stream encoded bytes to client
             enc_cmd, ctype = _encode_cmd(fmt)
             if enc_cmd is None:
-                # raw PCM bytes directly
                 def gen_raw():
                     try:
                         for b in pcm_iter:
@@ -652,11 +652,9 @@ def speak():
                     except GeneratorExit:
                         return
                 return Response(gen_raw(), mimetype="audio/L16")
-            # Otherwise, pipe PCM into ffmpeg and stream encoder stdout
             def gen_encoded():
                 p = subprocess.Popen(enc_cmd, stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL)
                 try:
-                    # writer thread: feed PCM into ffmpeg
                     def feeder():
                         try:
                             for b in pcm_iter:
@@ -667,7 +665,6 @@ def speak():
                         finally:
                             try: p.stdin.close()
                             except: pass
-
                     t = threading.Thread(target=feeder, daemon=True)
                     t.start()
                     while True:
@@ -691,18 +688,191 @@ def speak():
         return jsonify({"error":str(e)}), 500
 
 # ─────────────────────────────────────────────────────────────────────────────
-# 6) Serve + tips (AUTO-PORT + GRACEFUL SHUTDOWN)
+# 6) TLS helpers + Serve (TLS optional + LAN FORCE + PORT AUTO + GRACEFUL)
 # ─────────────────────────────────────────────────────────────────────────────
-import atexit, signal, socket, threading, os
-from werkzeug.serving import make_server
+from werkzeug.serving import make_server, generate_adhoc_ssl_context
+import atexit, signal
 
-def _print_startup(actual_port: int):
-    log(f"TTS service listening on http://{TTS_BIND}:{actual_port}", "SUCCESS")
+def _list_local_ips():
+    ips = set()
+    try:
+        s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        s.connect(("8.8.8.8", 80))
+        ips.add(s.getsockname()[0])
+        s.close()
+    except Exception:
+        pass
+    try:
+        host = socket.gethostname()
+        for info in socket.getaddrinfo(host, None, socket.AF_INET, socket.SOCK_DGRAM):
+            ips.add(info[4][0])
+    except Exception:
+        pass
+    return sorted(i for i in ips if not i.startswith("127."))
+
+def _get_all_sans():
+    sans_dns = set(["localhost"])
+    sans_ip  = set(["127.0.0.1"])
+    for ip in _list_local_ips():
+        sans_ip.add(ip)
+    for h in TTS_SSL_SANS:
+        sans_dns.add(h)
+    return sorted(sans_dns), sorted(sans_ip)
+
+def _generate_self_signed(cert_file: Path, key_file: Path):
+    # Generate a self-signed cert with SANs including local IPs/localhost
+    from cryptography.hazmat.primitives import serialization, hashes
+    from cryptography.hazmat.primitives.asymmetric import rsa
+    import cryptography.x509 as x509
+    from cryptography.x509 import NameOID, SubjectAlternativeName, DNSName, IPAddress
+    import ipaddress as ipa
+
+    keyobj = rsa.generate_private_key(public_exponent=65537, key_size=2048)
+    dns_sans, ip_sans = _get_all_sans()
+    san_list = [DNSName(d) for d in dns_sans]
+    for ip in ip_sans:
+        try:
+            san_list.append(IPAddress(ipa.ip_address(ip)))
+        except ValueError:
+            pass
+    san = SubjectAlternativeName(san_list)
+
+    cn = (ip_sans[0] if ip_sans else "localhost")
+    name = x509.Name([x509.NameAttribute(NameOID.COMMON_NAME, cn)])
+    not_before = datetime.now(timezone.utc) - timedelta(minutes=5)
+    not_after  = not_before + timedelta(days=365)
+
+    cert = (
+        x509.CertificateBuilder()
+            .subject_name(name)
+            .issuer_name(name)
+            .public_key(keyobj.public_key())
+            .serial_number(x509.random_serial_number())
+            .not_valid_before(not_before)
+            .not_valid_after(not_after)
+            .add_extension(san, critical=False)
+            .sign(keyobj, hashes.SHA256())
+    )
+
+    cert_file.parent.mkdir(parents=True, exist_ok=True)
+    with open(key_file, "wb") as f:
+        f.write(keyobj.private_bytes(
+            encoding=serialization.Encoding.PEM,
+            format=serialization.PrivateFormat.TraditionalOpenSSL,
+            encryption_algorithm=serialization.NoEncryption()
+        ))
+    with open(cert_file, "wb") as f:
+        f.write(cert.public_bytes(serialization.Encoding.PEM))
+    log(f"Generated self-signed TLS cert: {cert_file}", "SUCCESS")
+
+# --- add this helper (after _get_all_sans) ---
+def _mkcert_generate(cert_file: Path, key_file: Path):
+    """
+    Generate a cert with mkcert that's trusted by the local OS trust store.
+    Requires mkcert installed and its root CA installed (mkcert -install).
+    """
+    if shutil.which("mkcert") is None:
+        raise RuntimeError("mkcert not found on PATH")
+
+    # ensure the local CA is present (may prompt for password on macOS/Windows)
+    try:
+        subprocess.check_call(["mkcert", "-install"])
+    except Exception as e:
+        log(f"mkcert -install warning: {e}", "WARNING")
+
+    dns_sans, ip_sans = _get_all_sans()
+    names = dns_sans + ip_sans  # mkcert accepts both hostnames and IPs
+
+    cert_file.parent.mkdir(parents=True, exist_ok=True)
+    # mkcert will create both when using -cert-file / -key-file
+    cmd = ["mkcert", "-cert-file", str(cert_file), "-key-file", str(key_file)] + names
+    log(f"Generating mkcert certificate for: {', '.join(names)}", "PROCESS")
+    subprocess.check_call(cmd)
+    log(f"mkcert certificate written to {cert_file}", "SUCCESS")
+
+
+# --- replace your _build_ssl_context() with this version ---
+def _build_ssl_context():
+    """
+    Build an SSL context according to TTS_SSL mode.
+      - "0"/off: HTTP only
+      - "adhoc": ephemeral dev cert (may still warn)
+      - "mkcert": generate a locally trusted cert via mkcert
+      - "1": use provided TTS_SSL_CERT/TTS_SSL_KEY
+      - "generate": self-signed with SANs (will warn until user trusts it)
+    """
+    mode = TTS_SSL_MODE
+
+    # HTTP only
+    if mode in ("0", "off", "false", ""):
+        return None, "http"
+
+    # Werkzeug adhoc (quick dev, still usually untrusted)
+    if mode == "adhoc":
+        try:
+            return generate_adhoc_ssl_context(), "https"
+        except Exception as e:
+            log(f"Adhoc SSL failed: {e}", "ERROR")
+            return None, "http"
+
+    # mkcert (best local DX)
+    if mode == "mkcert":
+        cert_p = Path(TTS_SSL_CERT or (TLS_DIR / "cert.pem"))
+        key_p  = Path(TTS_SSL_KEY  or (TLS_DIR / "key.pem"))
+        try:
+            if TTS_SSL_REFRESH or (not cert_p.exists() or not key_p.exists()):
+                _mkcert_generate(cert_p, key_p)
+            ctx = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
+            ctx.load_cert_chain(certfile=str(cert_p), keyfile=str(key_p))
+            return ctx, "https"
+        except Exception as e:
+            log(f"mkcert mode failed ({e}); falling back to self-signed.", "WARNING")
+            mode = "generate"  # fall through
+
+    # Use provided cert/key (production or your own CA)
+    if mode in ("1", "true", "yes", "on"):
+        cert_p = Path(TTS_SSL_CERT)
+        key_p  = Path(TTS_SSL_KEY)
+        if cert_p.exists() and key_p.exists():
+            ctx = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
+            ctx.load_cert_chain(certfile=str(cert_p), keyfile=str(key_p))
+            return ctx, "https"
+        else:
+            log("TTS_SSL=1 but cert/key not found; generating self-signed instead.", "WARNING")
+            mode = "generate"
+
+    # Self-signed (with IP/DNS SANs)
+    if mode in ("generate", "gen", "selfsigned"):
+        cert_p = Path(TTS_SSL_CERT or (TLS_DIR / "cert.pem"))
+        key_p  = Path(TTS_SSL_KEY  or (TLS_DIR / "key.pem"))
+        if TTS_SSL_REFRESH or (not cert_p.exists() or not key_p.exists()):
+            _generate_self_signed(cert_p, key_p)
+        ctx = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
+        ctx.load_cert_chain(certfile=str(cert_p), keyfile=str(key_p))
+        return ctx, "https"
+
+    # Fallback: try provided paths anyway
+    try:
+        ctx = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
+        ctx.load_cert_chain(certfile=TTS_SSL_CERT, keyfile=TTS_SSL_KEY)
+        return ctx, "https"
+    except Exception as e:
+        log(f"TLS config error ({mode}): {e}. Serving over HTTP.", "WARNING")
+        return None, "http"
+
+
+def _print_startup(actual_port: int, scheme: str):
+    log(f"TTS service listening on {scheme}://{TTS_BIND}:{actual_port}", "SUCCESS")
     auth_note = "ON" if TTS_REQUIRE_AUTH else "OFF"
     log(f"Auth required: {auth_note}", "INFO")
     if TTS_REQUIRE_AUTH:
         log("Provide X-API-Key or Bearer session_key (via /handshake).", "INFO")
-    log(f"Try:  curl -s http://{('localhost' if TTS_BIND=='0.0.0.0' else TTS_BIND)}:{actual_port}/health | jq", "INFO")
+    try_host = "localhost" if TTS_BIND == "0.0.0.0" else TTS_BIND
+    curl_flag = "-k " if scheme == "https" else ""
+    log(f"Try:  curl {curl_flag}-s {scheme}://{try_host}:{actual_port}/health | jq", "INFO")
+    if TTS_BIND == "0.0.0.0":
+        for ip in _list_local_ips():
+            log(f"LAN URL: {scheme}://{ip}:{actual_port}/health", "INFO")
 
 def _port_is_free(host: str, port: int) -> bool:
     s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
@@ -716,22 +886,19 @@ def _port_is_free(host: str, port: int) -> bool:
         except: pass
         return False
 
-def _find_free_port(preferred: int, tries: int = 100) -> int:
+def _find_free_port(host: str, preferred: int, tries: int = 100) -> int:
     for p in range(preferred, preferred + tries + 1):
-        if _port_is_free(TTS_BIND, p):
+        if _port_is_free(host, p):
             return p
     raise RuntimeError(f"No free port in range {preferred}..{preferred+tries}")
 
 class _ServerThread(threading.Thread):
-    def __init__(self, app, host, port):
+    def __init__(self, app, host, port, ssl_context=None):
         super().__init__(daemon=True)
-        # NOTE: werkzeug's WSGIServer has allow_reuse_address=True by default
-        self._srv = make_server(host, port, app)
+        self._srv = make_server(host, port, app, ssl_context=ssl_context)
         self.port = port
-
     def run(self):
         self._srv.serve_forever()
-
     def shutdown(self):
         try:
             self._srv.shutdown()
@@ -741,45 +908,52 @@ class _ServerThread(threading.Thread):
 _server_thread = None
 
 def _start_server():
-    global _server_thread
+    global _server_thread, TTS_BIND
+    if TTS_BIND in ("127.0.0.1", "localhost", "::1") and not TTS_FORCE_LOCAL:
+        log("TTS_BIND was localhost; switching to 0.0.0.0 for LAN access. "
+            "Set TTS_FORCE_LOCAL=1 to keep localhost-only.", "WARNING")
+        TTS_BIND = "0.0.0.0"
+
+    ssl_ctx, scheme = _build_ssl_context()
+
     try:
-        actual_port = _find_free_port(TTS_PORT, tries=100)
+        actual_port = _find_free_port(TTS_BIND, TTS_PORT, tries=100)
     except Exception as e:
         log(f"Port selection failed: {e}", "ERROR")
         raise
-    _server_thread = _ServerThread(app, TTS_BIND, actual_port)
+
+    _server_thread = _ServerThread(app, TTS_BIND, actual_port, ssl_context=ssl_ctx)
     _server_thread.start()
-    _print_startup(actual_port)
+    _print_startup(actual_port, scheme)
     return actual_port
 
 def _graceful_exit(signum=None, frame=None):
-    signame = {signal.SIGINT:"SIGINT", getattr(signal, "SIGTSTP", 20):"SIGTSTP", signal.SIGTERM:"SIGTERM"}.get(signum, str(signum))
+    signame = {
+        signal.SIGINT:  "SIGINT",
+        getattr(signal, "SIGTSTP", 20): "SIGTSTP",
+        signal.SIGTERM: "SIGTERM"
+    }.get(signum, str(signum))
     log(f"Received {signame} — shutting down server…", "INFO")
     try:
         if _server_thread:
             _server_thread.shutdown()
     except Exception as e:
         log(f"Shutdown error: {e}", "WARNING")
-    # ensure we really release the socket immediately
     os._exit(0)
 
-# atexit + signals → always free the port
 atexit.register(_graceful_exit)
-signal.signal(signal.SIGINT,  _graceful_exit)   # Ctrl-C
-signal.signal(signal.SIGTERM, _graceful_exit)   # docker stop / kill
-
-# Ctrl-Z (background) sends SIGTSTP on POSIX; intercept to cleanly exit and free port
+signal.signal(signal.SIGINT,  _graceful_exit)
+signal.signal(signal.SIGTERM, _graceful_exit)
 if hasattr(signal, "SIGTSTP"):
     signal.signal(signal.SIGTSTP, _graceful_exit)
 
 if __name__ == "__main__":
     _start_server()
-    # Block the main thread so the process sticks around; server runs in daemon thread
     try:
         while True:
-            signal.pause()  # wait for signals; portable on POSIX
-    except AttributeError:
-        # Windows: no signal.pause(); just sleep-loop
-        import time
-        while True:
-            time.sleep(3600)
+            try:
+                signal.pause()
+            except AttributeError:
+                time.sleep(3600)
+    except KeyboardInterrupt:
+        _graceful_exit(signal.SIGINT, None)
