@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
 """
-nkn_relay.py — Ultra-minimal NKN DM ⇄ HTTP(S) relay
+nkn_relay.py — Ultra-minimal NKN DM ⇄ HTTP(S) relay (now reconnects on network flap)
 
-What it does
-------------
+What it still does
+------------------
 - Boots a tiny Node sidecar (nkn-sdk MultiClient) to send/receive NKN direct messages
 - Accepts a DM shaped like `{"event":"relay.http", "id":"...", "req":{...}}`
 - Performs the requested HTTP(S) call to a local / LAN service (TLS verify optional)
@@ -11,55 +11,43 @@ What it does
   • single response: {"event":"relay.response", ...}
   • streaming: begin/chunk/keepalive/end frames
 
-Streaming response frames
--------------------------
-begin: {"event":"relay.response.begin","id":"...","ok":true,"status":200,"headers":{...}}
+Streaming response frames (unchanged)
+-------------------------------------
+begin: {"event":"relay.response.begin","id":"...","ok":true,"status":200,"headers":{...},"content_length":1234,"filename":"..."}
 chunk: {"event":"relay.response.chunk","id":"...","seq":1,"b64":"..."}    # small base64 slices
 keep : {"event":"relay.response.keepalive","id":"...","ts":...}
-end  : {"event":"relay.response.end","id":"...","ok":true,"bytes":123456,"truncated":false,"error":null}
+end  : {"event":"relay.response.end","id":"...","ok":true,"bytes":123456,"last_seq":N,"truncated":false,"error":null}
 
-DM Request schema (from peer)
------------------------------
+DM Request schema (from peer) — unchanged
+-----------------------------------------
 {
   "event": "relay.http",            # alias: "http.request", "relay.fetch"
   "id": "abc123",                   # echo'd back; you set it
   "req": {
-    # Either provide a full URL:
-    "url": "https://127.0.0.1:8123/speak",
-
-    # ...or use a configured service key + path:
-    # "service": "tts",
-    # "path": "/speak",
-
-    "method": "POST",               # default GET
+    "url": "https://127.0.0.1:8123/speak",  # or service/path via RELAY_TARGETS
+    "method": "POST",
     "headers": {"Content-Type":"application/json","X-API-Key":"..."},
-    "json": { "text":"Hello","mode":"file" },      # OR:
-    # "body_b64": "<base64-bytes>",                # raw body
-    "timeout_ms": 30000,            # optional
-    "verify": true,                 # override TLS verification per request (false allows self-signed)
+    "json": { "text":"Hello","mode":"file" },  # or "body_b64": "<base64-bytes>"
+    "timeout_ms": 30000,
+    "verify": true,                 # per-request TLS verify (default from env)
     "insecure_tls": false,          # synonym for verify=false
-    "stream": "chunks"              # set truthy to enable chunked DMs (or header X-Relay-Stream: chunks)
+    "stream": "chunks"              # truthy or header X-Relay-Stream: chunks to stream
   }
 }
 
-Environment (.env auto-created on first run)
---------------------------------------------
-NKN_SEED_HEX=<64 hex chars>      # generated if absent
+Environment (.env auto-created on first run) — unchanged keys
+-------------------------------------------------------------
+NKN_SEED_HEX=<64 hex chars>
 NKN_NUM_SUBCLIENTS=2
 NKN_TOPIC_PREFIX=relay
-RELAY_WORKERS=4                  # HTTP worker concurrency
-RELAY_MAX_BODY_B=1048576         # cap base64 body to 1MB (non-stream mode)
-RELAY_VERIFY_DEFAULT=1           # default TLS verify (1=true, 0=false)
-RELAY_TARGETS={"tts":"https://127.0.0.1:8123"}   # optional service map
-NKN_BRIDGE_SEED_WS=              # optional CSV of seedWsAddr (wss://host:port,...)
-
-Usage
------
-python3 nkn_relay.py [--debug]
-# With --debug, shows a curses TUI listing all incoming NKN DMs.
+RELAY_WORKERS=4
+RELAY_MAX_BODY_B=1048576
+RELAY_VERIFY_DEFAULT=1
+RELAY_TARGETS={"tts":"https://127.0.0.1:8123"}
+NKN_BRIDGE_SEED_WS=
 """
 
-import os, sys, json, time, base64, threading, queue, subprocess, shutil, argparse, datetime
+import os, sys, json, time, base64, threading, queue, subprocess, shutil, argparse, datetime, re, urllib.parse, signal
 from pathlib import Path
 
 # ──────────────────────────────────────────────────────────────
@@ -273,7 +261,7 @@ except Exception:
 SEEDS_WS   = [s.strip() for s in (cfg.get("NKN_BRIDGE_SEED_WS") or "").split(",") if s.strip()]
 
 # ──────────────────────────────────────────────────────────────
-# 2) Minimal Node bridge (nkn-sdk) setup — normalized src/payload
+# 2) Resilient Node bridge (nkn-sdk) with watchdog
 # ──────────────────────────────────────────────────────────────
 NODE = shutil.which("node")
 NPM  = shutil.which("npm")
@@ -290,6 +278,7 @@ if not PKG_JSON.exists():
     subprocess.check_call([NPM, "init", "-y"], cwd=BRIDGE_DIR)
     subprocess.check_call([NPM, "install", "nkn-sdk@^1.3.6"], cwd=BRIDGE_DIR)
 
+# Node child: same API, but self-probes and exits on unhealthy so parent restarts it.
 BRIDGE_SRC = r"""
 'use strict';
 const nkn = require('nkn-sdk');
@@ -299,10 +288,12 @@ const SEED_HEX = (process.env.NKN_SEED_HEX || '').toLowerCase().replace(/^0x/,''
 const NUM = parseInt(process.env.NKN_NUM_SUBCLIENTS || '2', 10) || 2;
 const SEED_WS = (process.env.NKN_BRIDGE_SEED_WS || '').split(',').map(s=>s.trim()).filter(Boolean);
 
+const PROBE_EVERY_MS = parseInt(process.env.NKN_SELF_PROBE_MS || '12000', 10);
+const PROBE_FAILS_EXIT = parseInt(process.env.NKN_SELF_PROBE_FAILS || '3', 10);
+
 function out(obj){ try{ process.stdout.write(JSON.stringify(obj)+'\n'); }catch{} }
 
-(async ()=>{
-  if(!/^[0-9a-f]{64}$/.test(SEED_HEX)){ out({type:'crit', msg:'bad NKN_SEED_HEX'}); process.exit(1); }
+function spawnClient(){
   const client = new nkn.MultiClient({
     seed: SEED_HEX,
     identifier: 'relay',
@@ -311,15 +302,39 @@ function out(obj){ try{ process.stdout.write(JSON.stringify(obj)+'\n'); }catch{}
     wsConnHeartbeatTimeout: 120000,
   });
 
-  client.on('connect', ()=> out({type:'ready', address: String(client.addr || ''), ts: Date.now()}));
+  let probeFails = 0;
+  let probe = null;
+
+  function startProbe(){
+    stopProbe();
+    probe = setInterval(async ()=>{
+      try {
+        await client.send(String(client.addr || ''), JSON.stringify({event:'relay.selfprobe', ts: Date.now()}), { noReply: true });
+        probeFails = 0;
+        out({type:'status', state:'probe_ok', ts: Date.now()});
+      } catch (e){
+        probeFails++;
+        out({type:'status', state:'probe_fail', fails: probeFails, msg: String(e && e.message || e)});
+        if (probeFails >= PROBE_FAILS_EXIT){
+          out({type:'status', state:'probe_exit'});
+          process.exit(3);
+        }
+      }
+    }, PROBE_EVERY_MS);
+  }
+  function stopProbe(){ if (probe){ clearInterval(probe); probe=null; } }
+
+  client.on('connect', ()=>{ out({type:'ready', address: String(client.addr || ''), ts: Date.now()}); startProbe(); });
+  client.on('error', (e)=>{ out({type:'status', state:'error', msg:String(e && e.message || e)}); process.exit(2); });
+  client.on('close', ()=>{ out({type:'status', state:'close'}); process.exit(2); });
 
   // Normalize message callback shape across SDK variants
   client.on('message', (a, b)=>{
     try{
       let src, payload;
-      if (a && typeof a === 'object' && a.payload !== undefined) { src = String(a.src || ''); payload = a.payload; }
-      else { src = String(a || ''); payload = b; }
-      const s = Buffer.isBuffer(payload) ? payload.toString('utf8') : (typeof payload === 'string' ? payload : String(payload));
+      if (a && typeof a==='object' && a.payload!==undefined){ src = String(a.src||''); payload = a.payload; }
+      else { src = String(a||''); payload = b; }
+      const s = Buffer.isBuffer(payload) ? payload.toString('utf8') : (typeof payload==='string' ? payload : String(payload));
       let parsed = null; try { parsed = JSON.parse(s); } catch {}
       out({type:'nkn-dm', src, msg: parsed || {event:'<non-json>', raw:s}});
     }catch(e){ out({type:'err', msg: String(e && e.message || e)}); }
@@ -333,6 +348,15 @@ function out(obj){ try{ process.stdout.write(JSON.stringify(obj)+'\n'); }catch{}
       client.send(cmd.to, JSON.stringify(cmd.data), opts).catch(()=>{});
     }
   });
+
+  process.on('unhandledRejection', (e)=>{ out({type:'status', state:'unhandledRejection', msg:String(e)}); process.exit(1); });
+  process.on('uncaughtException', (e)=>{ out({type:'status', state:'uncaughtException', msg:String(e)}); process.exit(1); });
+  process.on('exit', ()=>{ stopProbe(); });
+}
+
+(function main(){
+  if(!/^[0-9a-f]{64}$/.test(SEED_HEX)){ out({type:'crit', msg:'bad NKN_SEED_HEX'}); process.exit(1); }
+  spawnClient();
 })();
 """
 if not BRIDGE_JS.exists() or BRIDGE_JS.read_text() != BRIDGE_SRC:
@@ -343,51 +367,207 @@ BRIDGE_ENV["NKN_SEED_HEX"]       = SEED_HEX
 BRIDGE_ENV["NKN_NUM_SUBCLIENTS"] = str(SUBS)
 BRIDGE_ENV["NKN_BRIDGE_SEED_WS"] = ",".join(SEEDS_WS)
 
-bridge = subprocess.Popen(
-    [NODE, str(BRIDGE_JS)],
-    cwd=BRIDGE_DIR,
-    env=BRIDGE_ENV,
-    stdin=subprocess.PIPE,
-    stdout=subprocess.PIPE,
-    stderr=subprocess.PIPE,
-    text=True,
-    bufsize=1
-)
+# Watchdog to keep the sidecar alive + queue outbound DMs while offline
+BRIDGE_MIN_S = 0.5
+BRIDGE_MAX_S = 30.0
+SEND_QUEUE_MAX = 1000
 
-bridge_write_lock = threading.Lock()
-def _dm(to: str, data: dict, opts: dict | None = None):
-    if not bridge or not bridge.stdin: return
-    try:
-        payload = {"type": "dm", "to": to, "data": data}
-        if opts: payload["opts"] = opts
-        with bridge_write_lock:
-            bridge.stdin.write(json.dumps(payload) + "\n")
-            bridge.stdin.flush()
-    except Exception:
-        pass
+class BridgeManager:
+    def __init__(self):
+        self.env = BRIDGE_ENV
+        self.proc: subprocess.Popen | None = None
+        self.lock = threading.Lock()
+        self.addr = None
+        self.backoff = BRIDGE_MIN_S
+        self.stop = threading.Event()
+        self.stdout_thread = None
+        self.stderr_thread = None
+        self.sender_thread = None
+        self.send_q: "queue.Queue[tuple[str,dict,dict|None]]" = queue.Queue(maxsize=SEND_QUEUE_MAX)
 
-# Pump bridge stderr to our stderr (optional) + UI
-def _stderr_pump():
-    while True:
+    def start(self):
+        with self.lock:
+            if self.proc and self.proc.poll() is None:
+                return
+            try:
+                self.proc = subprocess.Popen(
+                    [NODE, str(BRIDGE_JS)],
+                    cwd=BRIDGE_DIR, env=self.env,
+                    stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+                    text=True, bufsize=1
+                )
+                self.addr = None
+                self.backoff = BRIDGE_MIN_S
+
+                def _ready_guard():
+                    time.sleep(30)
+                    if not self.stop.is_set() and self.addr is None:
+                        try:
+                            with self.lock:
+                                if self.proc and self.proc.poll() is None:
+                                    self.proc.terminate()
+                        except Exception:
+                            pass
+                threading.Thread(target=_ready_guard, daemon=True).start()
+            except Exception as e:
+                print(f"[BRIDGE] spawn error: {e}", file=sys.stderr)
+                return
+
+        self.stdout_thread = threading.Thread(target=self._stdout_pump, daemon=True); self.stdout_thread.start()
+        self.stderr_thread = threading.Thread(target=self._stderr_pump, daemon=True); self.stderr_thread.start()
+        if not self.sender_thread:
+            self.sender_thread = threading.Thread(target=self._sender_loop, daemon=True); self.sender_thread.start()
+
+    def _restart_later(self):
+        if self.stop.is_set(): return
+        t = self.backoff
+        self.backoff = min(self.backoff * 2.0, BRIDGE_MAX_S)
+        if DEBUG: UI.log("SYS", event="bridge_restart", msg=f"in {t:.1f}s")
+        def _delayed():
+            time.sleep(t)
+            if not self.stop.is_set(): self.start()
+        threading.Thread(target=_delayed, daemon=True).start()
+
+    def _stdout_pump(self):
+        p = self.proc
+        while not self.stop.is_set():
+            try:
+                if not p or p.stdout is None: break
+                line = p.stdout.readline()
+                if not line:
+                    if p.poll() is not None: break
+                    time.sleep(0.05); continue
+                try:
+                    msg = json.loads(line.strip())
+                except Exception:
+                    continue
+
+                t = msg.get("type")
+                if t == "ready":
+                    self.addr = msg.get("address")
+                    my_addr["nkn"] = self.addr
+                    print(f"→ NKN ready: {self.addr}", flush=True)
+                    if DEBUG: UI.log("SYS", msg=f"ready {self.addr}")
+                    continue
+
+                if t == "nkn-dm":
+                    src = msg.get("src") or ""
+                    m   = msg.get("msg") or {}
+                    ev  = _norm_event(m.get("event") or "")
+                    rid = m.get("id")
+                    if DEBUG:
+                        UI.log("IN", src=src, event=ev or "<unknown>", msg=f"id={rid or '—'}")
+
+                    if ev == "relay.ping":
+                        self.dm(src, {"event":"relay.pong","ts":int(time.time()*1000),"addr": self.addr})
+                        continue
+
+                    if ev == "relay.info":
+                        self.dm(src, {
+                            "event":"relay.info",
+                            "ts": int(time.time()*1000),
+                            "addr": self.addr,
+                            "services": sorted(list(TARGETS.keys())),
+                            "verify_default": VERIFY_DEF,
+                            "workers": WORKERS,
+                            "max_body_b": MAX_BODY_B
+                        })
+                        continue
+
+                    if ev == "relay.http":
+                        if DEBUG:
+                            try:
+                                req = m.get("req") or {}
+                                url = req.get("url") or (f"{req.get('service','')}:{req.get('path','/')}")
+                                UI.log("SYS", msg=f"queue id={rid or '—'} {req.get('method','GET')} {url}")
+                            except Exception:
+                                pass
+                        jobs.put({"src": src, "body": m})
+                        continue
+
+                    # Ignore our self-probe echoes
+                    if ev == "relay.selfprobe":
+                        continue
+
+                elif t == "status":
+                    if DEBUG: UI.log("SYS", event=f"bridge:{msg.get('state','')}", msg=msg.get("msg",""))
+
+            except Exception:
+                time.sleep(0.05)
+        if DEBUG: UI.log("SYS", event="bridge_exit", msg="bridge died")
+        self._restart_later()
+
+    def _stderr_pump(self):
+        p = self.proc
+        while not self.stop.is_set():
+            try:
+                if not p or p.stderr is None: break
+                line = p.stderr.readline()
+                if not line and p.poll() is not None: break
+                if line:
+                    sys.stderr.write(line); sys.stderr.flush()
+                    if DEBUG: UI.log("ERR", msg=line.rstrip())
+            except Exception:
+                time.sleep(0.1)
+
+    def dm(self, to: str, data: dict, opts: dict | None = None):
+        payload = (to, data, (opts or {}))
         try:
-            line = bridge.stderr.readline()
-            if not line and bridge.poll() is not None: break
-            if line:
-                sys.stderr.write(line)
-                if DEBUG:
-                    UI.log("ERR", msg=line.rstrip())
-        except Exception:
-            time.sleep(0.1)
-threading.Thread(target=_stderr_pump, daemon=True).start()
+            self.send_q.put_nowait(payload)
+        except queue.Full:
+            try: _ = self.send_q.get_nowait()
+            except Exception: pass
+            try: self.send_q.put_nowait(payload)
+            except Exception: pass
 
-# ──────────────────────────────────────────────────────────────
-# 3) HTTP worker pool (DM → queue → requests → DM)
-# ──────────────────────────────────────────────────────────────
-Job = dict
-jobs: "queue.Queue[Job]" = queue.Queue()
+    def _sender_loop(self):
+        while not self.stop.is_set():
+            try:
+                to, data, opts = self.send_q.get()
+            except Exception:
+                time.sleep(0.05); continue
+            wrote = False
+            while not wrote and not self.stop.is_set():
+                with self.lock:
+                    p = self.proc
+                    stdin = p.stdin if p else None
+                if p and (p.poll() is None) and stdin:
+                    try:
+                        msg = {"type":"dm", "to":to, "data":data}
+                        if opts: msg["opts"] = opts
+                        stdin.write(json.dumps(msg)+"\n"); stdin.flush()
+                        if DEBUG: UI.log("OUT", to=to, event=str(data.get("event","")), msg="queued→sent")
+                        wrote = True
+                        break
+                    except Exception:
+                        pass
+                time.sleep(0.2)
+            try: self.send_q.task_done()
+            except Exception: pass
+
+    def shutdown(self):
+        self.stop.set()
+        with self.lock:
+            if self.proc and self.proc.poll() is None:
+                try: self.proc.stdin and self.proc.stdin.close()
+                except Exception: pass
+                try: self.proc.terminate()
+                except Exception: pass
+
+jobs: "queue.Queue[dict]" = queue.Queue()
 my_addr = {"nkn": None}
 UI.bind_refs(my_addr, jobs, WORKERS, VERIFY_DEF, MAX_BODY_B)
 
+bridge_mgr = BridgeManager()
+bridge_mgr.start()
+
+# Provide _dm wrapper so the rest of your code stays identical
+def _dm(to: str, data: dict, opts: dict | None = None):
+    bridge_mgr.dm(to, data, opts)
+
+# ──────────────────────────────────────────────────────────────
+# 3) HTTP worker pool (DM → queue → requests → DM) — unchanged
+# ──────────────────────────────────────────────────────────────
 def _resolve_url(req: dict) -> str:
     url = (req.get("url") or "").strip()
     if url:
@@ -412,8 +592,9 @@ def _norm_event(ev: str) -> str:
         return "relay.ping"
     if s.endswith("relay.info") or s.endswith(".info") or s == "info":
         return "relay.info"
+    if s.endswith("relay.selfprobe") or s.endswith(".selfprobe"):
+        return "relay.selfprobe"
     return s
-
 
 def _http_worker():
     s = requests.Session()
@@ -466,11 +647,10 @@ def _http_worker():
                 resp = s.request(method, url, stream=True, **kwargs)
                 hdrs = {k.lower(): v for k, v in resp.headers.items()}
 
-                # Derive filename for client convenience
+                # Derive filename for client convenience (best-effort)
                 filename = None
                 cd = resp.headers.get("Content-Disposition") or resp.headers.get("content-disposition") or ""
                 try:
-                    import re, urllib.parse
                     m = re.search(r"filename\*=UTF-8''([^;]+)|filename=\"?([^\";]+)\"?", cd, re.I)
                     if m: filename = urllib.parse.unquote(m.group(1) or m.group(2))
                 except Exception:
@@ -488,8 +668,8 @@ def _http_worker():
                     "id": rid, "ok": True,
                     "status": int(resp.status_code),
                     "headers": hdrs,
-                    "content_length": cl_num,     # 👈 new (optional)
-                    "filename": filename          # 👈 new (optional)
+                    "content_length": cl_num,
+                    "filename": filename
                 }, dm_opts_stream)
                 if DEBUG:
                     UI.log("OUT", to=src, status="begin", msg=f"id={rid}")
@@ -570,70 +750,19 @@ for _ in range(max(1, WORKERS)):
     threading.Thread(target=_http_worker, daemon=True).start()
 
 # ──────────────────────────────────────────────────────────────
-# 4) Bridge stdout reader -> handle minimal events + UI logs
-# ──────────────────────────────────────────────────────────────
-def _stdout_pump():
-    while True:
-        try:
-            line = bridge.stdout.readline()
-            if not line and bridge.poll() is not None: break
-            if not line: continue
-            try:
-                msg = json.loads(line.strip())
-            except Exception:
-                continue
-
-            t = msg.get("type")
-            if t == "ready":
-                my_addr["nkn"] = msg.get("address")
-                print(f"→ NKN ready: {my_addr['nkn']}", flush=True)
-                if DEBUG:
-                    UI.log("SYS", msg=f"ready {my_addr['nkn']}")
-                continue
-
-            if t == "nkn-dm":
-                src = msg.get("src") or ""
-                m   = msg.get("msg") or {}
-                ev  = _norm_event(m.get("event") or "")
-                rid = m.get("id")
-                if DEBUG:
-                    UI.log("IN", src=src, event=ev or "<unknown>", msg=f"id={rid or '—'}")
-
-                if ev == "relay.ping":
-                    _dm(src, {"event":"relay.pong","ts":int(time.time()*1000),"addr": my_addr["nkn"]})
-                    continue
-
-                if ev == "relay.info":
-                    _dm(src, {
-                        "event":"relay.info",
-                        "ts": int(time.time()*1000),
-                        "addr": my_addr["nkn"],
-                        "services": sorted(list(TARGETS.keys())),
-                        "verify_default": VERIFY_DEF,
-                        "workers": WORKERS,
-                        "max_body_b": MAX_BODY_B
-                    })
-                    continue
-
-                if ev == "relay.http":
-                    if DEBUG:
-                        try:
-                            req = m.get("req") or {}
-                            url = req.get("url") or (f"{req.get('service','')}:{req.get('path','/')}")
-                            UI.log("SYS", msg=f"queue id={rid or '—'} {req.get('method','GET')} {url}")
-                        except Exception:
-                            pass
-                    jobs.put({"src": src, "body": m})
-                    continue
-                # Unknown → ignore
-        except Exception:
-            time.sleep(0.05)
-
-threading.Thread(target=_stdout_pump, daemon=True).start()
-
-# ──────────────────────────────────────────────────────────────
 # 5) Stay alive (curses UI if --debug, else idle loop)
 # ──────────────────────────────────────────────────────────────
+def _shutdown(*_):
+    try: UI.stop()
+    except Exception: pass
+    try: bridge_mgr.shutdown()
+    except Exception: pass
+    os._exit(0)
+
+for sig in (signal.SIGINT, signal.SIGTERM):
+    try: signal.signal(sig, _shutdown)
+    except Exception: pass
+
 try:
     if DEBUG:
         UI.run()
@@ -643,4 +772,4 @@ try:
 except KeyboardInterrupt:
     pass
 finally:
-    UI.stop()
+    _shutdown()
