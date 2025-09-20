@@ -6,7 +6,7 @@ Automatic Deployment with Piper and ONNX models
 
 Run in terminal
 ```
-git clone --depth=1 https://github.com/robit-man/piper-tts-service.git && cd piper-tts-service && python3 tts_service.py
+git clone --depth=1 https://github.com/robit-man/piper-tts-service.git && cd piper-tts-service/tts/ && python3 tts_service.py
 ```
 Then, in another terminal, test with
 ```
