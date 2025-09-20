@@ -1,965 +1,1290 @@
 <!doctype html>
 <html lang="en">
+
 <head>
-<meta charset="utf-8" />
-<meta name="viewport" content="width=device-width, initial-scale=1" />
-<title>TTS Service — Minimal Frontend</title>
-<style>
-  :root {
-    --bg: #0b0f14; --panel: rgba(255,255,255,0.07); --panel-2: rgba(255,255,255,0.05);
-    --accent: #66e0ff; --accent-2: #a8ff60; --text: #e8f1f8; --muted: #a9b6c3;
-    --danger: #ff6b6b; --ok: #7dffb0; --mono: ui-monospace,SFMono-Regular,Menlo,Monaco,Consolas,"Liberation Mono","Courier New",monospace;
-    --radius: 16px; --shadow: 0 10px 30px rgba(0,0,0,.35), inset 0 0 1px rgba(255,255,255,.12);
-  }
-  *{box-sizing:border-box} html,body{height:100%}
-  body{margin:0;color:var(--text);background:
-    radial-gradient(1200px 800px at 10% -10%, #163147, transparent 60%),
-    radial-gradient(900px 600px at 100% 0%, #1b2d18, transparent 55%),
-    var(--bg);
-    font-family: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Noto Sans, Ubuntu, Cantarell, Helvetica Neue, Arial; line-height:1.3;
-  }
-  header{padding:24px 20px;display:flex;gap:18px;align-items:center;justify-content:space-between}
-  .brand{display:flex;gap:14px;align-items:center;letter-spacing:.4px}
-  .logo{width:40px;height:40px;border-radius:12px;background:conic-gradient(from 220deg, var(--accent), #9f78ff, var(--accent-2));box-shadow:var(--shadow)}
-  .brand h1{font-size:18px;margin:0;font-weight:700}
-  .hint{color:var(--muted);font-size:12px}
-  .grid{display:grid;gap:16px;padding:0 20px 24px;grid-template-columns:repeat(12,1fr)}
-  .card{grid-column:span 12;background:var(--panel);border:1px solid rgba(255,255,255,.08);border-radius:var(--radius);box-shadow:var(--shadow);backdrop-filter:blur(8px);padding:16px}
-  @media (min-width:980px){.span-6{grid-column:span 6}.span-4{grid-column:span 4}.span-8{grid-column:span 8}}
-  .card h2{margin:0 0 8px;font-size:16px}
-  .row{display:flex;flex-wrap:wrap;gap:10px;align-items:center}
-  .row>*{margin:2px 0}
-  label{font-size:12px;color:var(--muted);margin-right:6px}
-  input[type="text"],input[type="url"],input[type="number"],textarea,select{
-    width:100%;background:var(--panel-2);color:var(--text);border:1px solid rgba(255,255,255,.15);
-    padding:10px 12px;border-radius:12px;outline:none;font-size:14px}
-  input::placeholder,textarea::placeholder{color:#90a4b5;opacity:.75}
-  textarea{resize:vertical;min-height:84px}
-  button{background:linear-gradient(180deg, rgba(102,224,255,.9), rgba(102,224,255,.6));color:#001018;border:0;padding:10px 14px;font-weight:700;border-radius:12px;cursor:pointer;transition:.15s transform ease,.15s filter ease;box-shadow:0 6px 16px rgba(72,218,255,.25), inset 0 0 1px rgba(255,255,255,.6)}
-  button.secondary{background:linear-gradient(180deg, rgba(168,255,96,.9), rgba(168,255,96,.6));color:#021204;box-shadow:0 6px 16px rgba(168,255,96,.20), inset 0 0 1px rgba(255,255,255,.6)}
-  button.ghost{background:transparent;color:var(--text);border:1px solid rgba(255,255,255,.2)}
-  button:active{transform:translateY(1px)}
-  .badge{display:inline-flex;align-items:center;gap:8px;padding:8px 10px;border-radius:999px;border:1px solid rgba(255,255,255,.15);background:rgba(255,255,255,.05)}
-  .dot{width:10px;height:10px;border-radius:50%;background:#999}.dot.ok{background:var(--ok);box-shadow:0 0 12px var(--ok)}.dot.warn{background:#f9c846;box-shadow:0 0 12px #f9c846}.dot.err{background:var(--danger);box-shadow:0 0 12px var(--danger)}
-  .code{background:#04070b;border:1px solid rgba(255,255,255,.12);border-radius:12px;padding:12px;font-family:var(--mono);font-size:12px;white-space:pre-wrap;color:#d7f0ff;max-height:240px;overflow:auto}
-  .audio-stack{display:flex;gap:10px;align-items:center;flex-wrap:wrap} audio{width:260px;height:36px}
-  .pill{font-family:var(--mono);font-size:12px;color:#03131a;background:var(--accent);border-radius:999px;padding:4px 8px}
-  .muted{color:var(--muted);font-size:12px}
-  .kv{display:grid;grid-template-columns:140px 1fr;gap:10px}
-  hr.sep{border:0;height:1px;background:linear-gradient(90deg, transparent, rgba(255,255,255,.12), transparent);margin:12px 0}
-  .small{font-size:11px;color:var(--muted)}
-</style>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>TTS Service — Minimal Frontend</title>
+    <style>
+        :root {
+            --bg: #0b0f14;
+            --panel: rgba(255, 255, 255, 0.07);
+            --panel-2: rgba(255, 255, 255, 0.05);
+            --accent: #66e0ff;
+            --accent-2: #a8ff60;
+            --text: #e8f1f8;
+            --muted: #a9b6c3;
+            --danger: #ff6b6b;
+            --ok: #7dffb0;
+            --mono: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+            --radius: 16px;
+            --shadow: 0 10px 30px rgba(0, 0, 0, .35), inset 0 0 1px rgba(255, 255, 255, .12);
+        }
 
-<!-- nkn-sdk pinned (browser build) -->
-<script src="https://cdn.jsdelivr.net/npm/nkn-sdk@1.3.6/dist/nkn.min.js"></script>
+        * {
+            box-sizing: border-box
+        }
+
+        html,
+        body {
+            height: 100%
+        }
+
+        body {
+            margin: 0;
+            color: var(--text);
+            font-family: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Noto Sans, Ubuntu, Cantarell, Helvetica Neue, Arial;
+            line-height: 1.3;
+        }
+
+        body::after {
+            content: '';
+            z-index: -1;
+            top: 0;
+            position: fixed;
+            width: 100vw;
+            height: 100vh;
+            background: radial-gradient(1200px 800px at 10% -10%, #163147, transparent 60%),
+                radial-gradient(900px 600px at 100% 0%, #1b2d18, transparent 55%),
+                var(--bg);
+        }
+
+        header {
+            padding: 24px 20px;
+            display: flex;
+            gap: 18px;
+            align-items: center;
+            justify-content: space-between
+        }
+
+        .brand {
+            display: flex;
+            gap: 14px;
+            align-items: center;
+            letter-spacing: .4px
+        }
+
+        .logo {
+            width: 40px;
+            height: 40px;
+            border-radius: 12px;
+            background: conic-gradient(from 220deg, var(--accent), #9f78ff, var(--accent-2));
+            box-shadow: var(--shadow)
+        }
+
+        .brand h1 {
+            font-size: 18px;
+            margin: 0;
+            font-weight: 700
+        }
+
+        .hint {
+            color: var(--muted);
+            font-size: 12px
+        }
+
+        .grid {
+            display: grid;
+            gap: 16px;
+            padding: 0 20px 24px;
+            grid-template-columns: repeat(12, 1fr)
+        }
+
+        .card {
+            grid-column: span 12;
+            background: var(--panel);
+            border: 1px solid rgba(255, 255, 255, .08);
+            border-radius: var(--radius);
+            box-shadow: var(--shadow);
+            backdrop-filter: blur(8px);
+            padding: 16px
+        }
+
+        @media (min-width:980px) {
+            .span-6 {
+                grid-column: span 6
+            }
+
+            .span-4 {
+                grid-column: span 4
+            }
+
+            .span-8 {
+                grid-column: span 8
+            }
+        }
+
+        .card h2 {
+            margin: 0 0 8px;
+            font-size: 16px
+        }
+
+        .row {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 10px;
+            align-items: center
+        }
+
+        .row>* {
+            margin: 2px 0
+        }
+
+        label {
+            font-size: 12px;
+            color: var(--muted);
+            margin-right: 6px
+        }
+
+        input[type="text"],
+        input[type="url"],
+        input[type="number"],
+        textarea,
+        select,
+        #modelName {
+            width: 100%;
+            background: var(--panel-2);
+            color: var(--text);
+            border: 1px solid rgba(255, 255, 255, .15);
+            padding: 10px 12px;
+            border-radius: 12px;
+            outline: none;
+            font-size: 14px
+        }
+
+        input::placeholder,
+        textarea::placeholder {
+            color: #90a4b5;
+            opacity: .75
+        }
+
+        textarea {
+            resize: vertical;
+            min-height: 84px
+        }
+
+        button {
+            background: linear-gradient(180deg, rgba(102, 224, 255, .9), rgba(102, 224, 255, .6));
+            color: #001018;
+            border: 0;
+            padding: 10px 14px;
+            font-weight: 700;
+            border-radius: 12px;
+            cursor: pointer;
+            transition: .15s transform ease, .15s filter ease;
+            box-shadow: 0 6px 16px rgba(72, 218, 255, .25), inset 0 0 1px rgba(255, 255, 255, .6)
+        }
+
+        button.secondary {
+            background: linear-gradient(180deg, rgba(168, 255, 96, .9), rgba(168, 255, 96, .6));
+            color: #021204;
+            box-shadow: 0 6px 16px rgba(168, 255, 96, .20), inset 0 0 1px rgba(255, 255, 255, .6)
+        }
+
+        button.ghost {
+            background: transparent;
+            color: var(--text);
+            border: 1px solid rgba(255, 255, 255, .2)
+        }
+
+        button:active {
+            transform: translateY(1px)
+        }
+
+        .badge {
+            display: inline-flex;
+            align-items: center;
+            gap: 8px;
+            padding: 8px 10px;
+            border-radius: 999px;
+            border: 1px solid rgba(255, 255, 255, .15);
+            background: rgba(255, 255, 255, .05)
+        }
+
+        .dot {
+            width: 10px;
+            height: 10px;
+            border-radius: 50%;
+            background: #999
+        }
+
+        .dot.ok {
+            background: var(--ok);
+            box-shadow: 0 0 12px var(--ok)
+        }
+
+        .dot.warn {
+            background: #f9c846;
+            box-shadow: 0 0 12px #f9c846
+        }
+
+        .dot.err {
+            background: var(--danger);
+            box-shadow: 0 0 12px var(--danger)
+        }
+
+        .code {
+            background: #04070b;
+            border: 1px solid rgba(255, 255, 255, .12);
+            border-radius: 12px;
+            padding: 12px;
+            font-family: var(--mono);
+            font-size: 12px;
+            white-space: pre-wrap;
+            color: #d7f0ff;
+            max-height: 240px;
+            overflow: auto
+        }
+
+        .audio-stack {
+            display: flex;
+            gap: 10px;
+            align-items: center;
+            flex-wrap: wrap
+        }
+
+        audio {
+            width: 260px;
+            height: 36px
+        }
+
+        .pill {
+            font-family: var(--mono);
+            font-size: 12px;
+            color: #03131a;
+            background: var(--accent);
+            border-radius: 999px;
+            padding: 4px 8px;
+            text-decoration: none
+        }
+
+        .muted {
+            color: var(--muted);
+            font-size: 12px
+        }
+
+        .kv {
+            display: grid;
+            grid-template-columns: 140px 1fr;
+            gap: 10px
+        }
+
+        hr.sep {
+            border: 0;
+            height: 1px;
+            background: linear-gradient(90deg, transparent, rgba(255, 255, 255, .12), transparent);
+            margin: 12px 0
+        }
+
+        .small {
+            font-size: 11px;
+            color: var(--muted)
+        }
+
+        .file-list {
+            display: flex;
+            gap: 8px;
+            flex-wrap: wrap;
+            margin-top: 8px
+        }
+
+        .chip {
+            border: 1px solid rgba(255, 255, 255, .15);
+            background: rgba(255, 255, 255, .06);
+            padding: 6px 10px;
+            border-radius: 999px;
+            font-size: 12px
+        }
+    </style>
+
+    <!-- nkn-sdk pinned (browser build) -->
+    <script src="https://cdn.jsdelivr.net/npm/nkn-sdk@1.3.6/dist/nkn.min.js"></script>
 </head>
+
 <body>
-<header>
-  <div class="brand">
-    <div class="logo"></div>
-    <div>
-      <h1>TTS Service Playground</h1>
-      <div class="hint">Piper-backed TTS · File, Stream, or Play on Server</div>
-    </div>
-  </div>
-  <div id="status" class="badge"><span class="dot warn"></span><span>Checking…</span></div>
-</header>
+    <header>
+        <div class="brand">
+            <div class="logo"></div>
+            <div>
+                <h1>TTS Service Playground</h1>
+                <div class="hint">Piper-backed TTS · File, Stream, or Play on Server</div>
+            </div>
+        </div>
+        <div id="status" class="badge"><span class="dot warn"></span><span>Checking…</span></div>
+    </header>
 
-<main class="grid">
+    <main class="grid">
 
-  <!-- SETTINGS -->
-  <section class="card span-6">
-    <h2>Settings</h2>
-    <div class="kv">
-      <label for="transport">Transport</label>
-      <select id="transport">
-        <option value="http">HTTP(S) Direct</option>
-        <option value="nkn">NKN Relay (DM)</option>
-      </select>
+        <!-- SETTINGS -->
+        <section class="card span-6">
+            <h2>Settings</h2>
+            <div class="kv">
+                <label for="transport">Transport</label>
+                <select id="transport">
+                    <option value="http">HTTP(S) Direct</option>
+                    <option value="nkn">NKN Relay (DM)</option>
+                </select>
 
-      <label for="baseUrl">Base URL</label>
-      <input id="baseUrl" type="url" placeholder="http://localhost:8123" />
+                <label for="baseUrl">Base URL</label>
+                <input id="baseUrl" type="url" placeholder="http://localhost:8123" />
 
-      <label for="relayAddr">NKN Relay Address</label>
-      <input id="relayAddr" type="text" placeholder="(paste full NKN address incl. identifier)" />
+                <label for="relayAddr">NKN Relay Address</label>
+                <input id="relayAddr" type="text" placeholder="(paste full NKN address incl. identifier)" />
 
-      <label for="apiKey">API Key</label>
-      <input id="apiKey" type="text" placeholder="(optional, if server requires auth)" />
+                <label for="apiKey">API Key</label>
+                <input id="apiKey" type="text" placeholder="(optional, if server requires auth)" />
 
-      <div></div>
-      <div class="row">
-        <button id="saveSettings">Save</button>
-        <button class="secondary" id="handshakeBtn">Handshake → Session</button>
-        <button class="ghost" id="clearSession">Clear Session</button>
-      </div>
-    </div>
+                <div></div>
+                <div class="row">
+                    <button id="saveSettings">Save</button>
+                    <button class="secondary" id="handshakeBtn">Handshake → Session</button>
+                    <button class="ghost" id="clearSession">Clear Session</button>
+                </div>
+            </div>
 
-    <div class="row" style="margin-top:10px;">
-      <span class="muted">NKN: <span id="nknInfo">disconnected</span></span>
-      <div class="row" style="margin-left:auto;">
-        <button id="nknConnectBtn">Connect NKN</button>
-        <button class="ghost" id="nknDisconnectBtn">Disconnect</button>
-      </div>
-    </div>
+            <div class="row" style="margin-top:10px;">
+                <span class="muted">NKN: <span id="nknInfo">disconnected</span></span>
+                <div class="row" style="margin-left:auto;">
+                    <button id="nknConnectBtn">Connect NKN</button>
+                    <button class="ghost" id="nknDisconnectBtn">Disconnect</button>
+                </div>
+            </div>
 
-    <hr class="sep">
-    <div class="row">
-      <button id="checkHealth">Check Health</button>
-      <button class="secondary" id="loadModels">Load Models</button>
-      <span class="muted">Session: <span id="sessInfo">none</span></span>
-    </div>
-    <div id="healthBox" class="code" style="margin-top:8px; display:none;"></div>
-    <div class="small" style="margin-top:6px;">
-      Tip: With NKN Relay, Base URL must be correct from the relay host’s perspective (e.g. <code>http://127.0.0.1:8123</code> if relay runs beside the service).
-    </div>
-  </section>
+            <hr class="sep">
+            <div class="row">
+                <button id="checkHealth">Check Health</button>
+                <button class="secondary" id="loadModels">Load Models</button>
+                <span class="muted">Session: <span id="sessInfo">none</span></span>
+            </div>
+            <div id="healthBox" class="code" style="margin-top:8px; display:none;"></div>
+            <div class="small" style="margin-top:6px;">
+                Tip: With NKN Relay, Base URL must be correct from the relay host’s perspective (e.g.
+                <code>http://127.0.0.1:8123</code> if relay runs beside the service).
+            </div>
+        </section>
 
-  <!-- MODELS -->
-  <section class="card span-6">
-    <h2>Models</h2>
-    <div class="row" style="margin-bottom:8px;">
-      <label for="modelName">Use Model</label>
-      <input id="modelName" list="modelList" placeholder="glados_piper_medium or voices/xyz.onnx" />
-      <datalist id="modelList"></datalist>
-    </div>
-    <details>
-      <summary class="muted">Pull a new voice into <code>./voices</code></summary>
-      <div class="kv" style="margin-top:8px;">
-        <label>name</label><input id="pullName" type="text" placeholder="myvoice"/>
-        <label>onnx url</label><input id="pullOnnx" type="url" placeholder="https://…/voice.onnx"/>
-        <label>json url</label><input id="pullJson" type="url" placeholder="https://…/voice.onnx.json"/>
-        <div></div><button id="pullBtn">Pull Voice</button>
-      </div>
-    </details>
-    <div id="modelsBox" class="code" style="margin-top:8px; display:none;"></div>
-  </section>
+        <!-- MODELS -->
+        <section class="card span-6">
+            <h2>Models</h2>
+            <div class="row" style="margin-bottom:8px;">
+                <label for="modelName">Use Model</label>
+                <input id="modelName" list="modelList" placeholder="glados_piper_medium or voices/xyz.onnx" />
+                <datalist id="modelList"></datalist>
+            </div>
+            <details>
+                <summary class="muted">Pull a new voice into <code>./voices</code></summary>
+                <div class="kv" style="margin-top:8px;">
+                    <label>name</label><input id="pullName" type="text" placeholder="myvoice" />
+                    <label>onnx url</label><input id="pullOnnx" type="url" placeholder="https://…/voice.onnx" />
+                    <label>json url</label><input id="pullJson" type="url" placeholder="https://…/voice.onnx.json" />
+                    <div></div><button id="pullBtn">Pull Voice</button>
+                </div>
+            </details>
+            <div id="modelsBox" class="code" style="margin-top:8px; display:none;"></div>
+        </section>
 
-  <!-- FILE MODE -->
-  <section class="card span-6">
-    <h2>Generate → File</h2>
-    <div class="kv">
-      <label>format</label>
-      <select id="fileFormat">
-        <option value="ogg" selected>ogg (opus)</option>
-        <option value="wav">wav</option>
-        <option value="raw">raw (PCM)</option>
-      </select>
-      <label>text</label>
-      <textarea id="fileText" placeholder="Hello from the TTS service!"></textarea>
-      <label>volume</label>
-      <input id="fileVol" type="number" min="0" max="1" step="0.05" value="1.0" />
-      <div></div>
-      <div class="row">
-        <button id="fileGo">Generate</button>
-        <span class="muted">Split: auto · Mode: file</span>
-      </div>
-    </div>
-    <div class="audio-stack" id="fileResult" style="margin-top:10px; display:none;">
-      <audio id="fileAudio" controls></audio>
-      <a id="fileDownload" href="#" download class="pill">Download</a>
-      <span class="muted" id="fileMeta"></span>
-    </div>
-    <div id="fileLog" class="code" style="margin-top:8px; display:none;"></div>
-  </section>
+        <!-- FILE MODE -->
+        <section class="card span-6">
+            <h2>Generate → File</h2>
+            <div class="kv">
+                <label>format</label>
+                <select id="fileFormat">
+                    <option value="ogg" selected>ogg (opus)</option>
+                    <option value="wav">wav</option>
+                    <option value="raw">raw (PCM)</option>
+                </select>
+                <label>text</label>
+                <textarea id="fileText" placeholder="Hello from the TTS service!"></textarea>
+                <label>volume</label>
+                <input id="fileVol" type="number" min="0" max="1" step="0.05" value="1.0" />
+                <div></div>
+                <div class="row">
+                    <button id="fileGo">Generate</button>
+                    <span class="muted">Split: auto · Mode: file</span>
+                </div>
+            </div>
+            <div class="audio-stack" id="fileResult" style="margin-top:10px; display:none;">
+                <audio id="fileAudio" controls></audio>
+                <a id="fileDownload" href="#" download class="pill">Download</a>
+                <span class="muted" id="fileMeta"></span>
+            </div>
+            <div class="file-list" id="fileList" style="display:none;"></div>
+            <div id="fileLog" class="code" style="margin-top:8px; display:none;"></div>
+        </section>
 
-  <!-- STREAM MODE -->
-  <section class="card span-6">
-    <h2>Stream → Browser (live)</h2>
-    <div class="kv">
-      <label>format</label>
-      <select id="streamFormat">
-        <option value="raw" selected>raw (PCM 16-bit mono 22050Hz)</option>
-        <option value="ogg">ogg (opus) — requires MSE; not used here</option>
-        <option value="wav">wav — better after full buffer</option>
-      </select>
-      <label>text</label>
-      <textarea id="streamText" placeholder="This will play as bytes arrive."></textarea>
-      <label>volume</label>
-      <input id="streamVol" type="number" min="0" max="1" step="0.05" value="1.0" />
-      <div></div>
-      <div class="row">
-        <button id="streamGo">Stream & Play</button>
-        <button class="ghost" id="streamStop">Stop</button>
-        <span class="muted">Mode: stream · Playback: WebAudio</span>
-      </div>
-    </div>
-    <div class="row" style="margin-top:10px;">
-      <span class="muted">AudioContext: <span id="acInfo">—</span></span>
-      <span class="muted">Buffered samples: <span id="bufInfo">0</span></span>
-    </div>
-    <div id="streamLog" class="code" style="margin-top:8px; display:none;"></div>
-    <div class="small" style="margin-top:6px;">
-      Over NKN Relay we receive audio as <em>many small chunk DMs</em> and play them in order.
-    </div>
-  </section>
+        <!-- STREAM MODE -->
+        <section class="card span-6">
+            <h2>Stream → Browser (live)</h2>
+            <div class="kv">
+                <label>format</label>
+                <select id="streamFormat">
+                    <option value="raw" selected>raw (PCM 16-bit mono 22050Hz)</option>
+                    <option value="ogg">ogg (opus) — requires MSE; not used here</option>
+                    <option value="wav">wav — better after full buffer</option>
+                </select>
+                <label>text</label>
+                <textarea id="streamText" placeholder="This will play as bytes arrive."></textarea>
+                <label>volume</label>
+                <input id="streamVol" type="number" min="0" max="1" step="0.05" value="1.0" />
+                <div></div>
+                <div class="row">
+                    <button id="streamGo">Stream & Play</button>
+                    <button class="ghost" id="streamStop">Stop</button>
+                    <span class="muted">Mode: stream · Playback: WebAudio</span>
+                </div>
+            </div>
+            <div class="row" style="margin-top:10px;">
+                <span class="muted">AudioContext: <span id="acInfo">—</span></span>
+                <span class="muted">Buffered samples: <span id="bufInfo">0</span></span>
+            </div>
+            <div id="streamLog" class="code" style="margin-top:8px; display:none;"></div>
+            <div class="small" style="margin-top:6px;">
+                Over NKN Relay we receive audio as <em>many small chunk DMs</em> and play them in order.
+            </div>
+        </section>
 
-  <!-- PLAY ON SERVER -->
-  <section class="card span-4">
-    <h2>Play on Server</h2>
-    <div class="kv">
-      <label>text</label>
-      <textarea id="playText" placeholder="This plays on the host running the service."></textarea>
-      <div></div>
-      <div class="row">
-        <button id="playGo">Send</button>
-        <span class="muted">Requires <code>aplay</code> or <code>ffplay</code> on server.</span>
-      </div>
-    </div>
-    <div id="playLog" class="code" style="margin-top:8px; display:none;"></div>
-  </section>
+        <!-- PLAY ON SERVER -->
+        <section class="card span-4">
+            <h2>Play on Server</h2>
+            <div class="kv">
+                <label>text</label>
+                <textarea id="playText" placeholder="This plays on the host running the service."></textarea>
+                <div></div>
+                <div class="row">
+                    <button id="playGo">Send</button>
+                    <span class="muted">Requires <code>aplay</code> or <code>ffplay</code> on server.</span>
+                </div>
+            </div>
+            <div id="playLog" class="code" style="margin-top:8px; display:none;"></div>
+        </section>
 
-  <!-- EXAMPLES -->
-  <section class="card span-8">
-    <h2>Quick Examples</h2>
-    <div class="row" style="flex-wrap:wrap">
-      <button class="ghost" data-example="hello-file">“Hello” → File</button>
-      <button class="ghost" data-example="hello-stream">“Hello” → Stream</button>
-      <button class="ghost" data-example="lorem-file">Paragraph → File</button>
-      <button class="ghost" data-example="server-play">Short → Play on Server</button>
-    </div>
-    <div class="code" style="margin-top:8px;">
-curl -X POST "$BASE/speak" \
-  -H "Content-Type: application/json" \
-  -d '{"text":"Hello!", "mode":"file"}'
-    </div>
-  </section>
+        <!-- EXAMPLES -->
+        <section class="card span-8">
+            <h2>Quick Examples</h2>
+            <div class="row" style="flex-wrap:wrap">
+                <button class="ghost" data-example="hello-file">“Hello” → File</button>
+                <button class="ghost" data-example="hello-stream">“Hello” → Stream</button>
+                <button class="ghost" data-example="lorem-file">Paragraph → File</button>
+                <button class="ghost" data-example="server-play">Short → Play on Server</button>
+            </div>
+            <div class="code" style="margin-top:8px;">
+                curl -X POST "$BASE/speak" \
+                -H "Content-Type: application/json" \
+                -d '{"text":"Hello!", "mode":"file"}'
+            </div>
+        </section>
 
-</main>
+    </main>
 
-<script>
-/* ========== STATE ========== */
-const S = {
-  transport: localStorage.getItem('tts.transport') || 'http', // 'http' | 'nkn'
-  base: localStorage.getItem('tts.base') || 'http://localhost:8123',
-  relayAddr: localStorage.getItem('tts.relayAddr') || '',
-  apiKey: localStorage.getItem('tts.apiKey') || '',
-  sessionKey: localStorage.getItem('tts.sessionKey') || '',
-  sessionExp: parseInt(localStorage.getItem('tts.sessionExp') || '0', 10),
+    <script>
+        /* ========== STATE ========== */
+        const S = {
+            transport: localStorage.getItem('tts.transport') || 'http', // 'http' | 'nkn'
+            base: localStorage.getItem('tts.base') || 'http://localhost:8123',
+            relayAddr: localStorage.getItem('tts.relayAddr') || '',
+            apiKey: localStorage.getItem('tts.apiKey') || '',
+            sessionKey: localStorage.getItem('tts.sessionKey') || '',
+            sessionExp: parseInt(localStorage.getItem('tts.sessionExp') || '0', 10),
 
-  // NKN runtime
-  nkn: {
-    client: null,
-    addr: '',
-    ready: false,
-    pending: new Map(), // single-response
-    streams: new Map(), // id -> ctx {expected,pending,leftover,onBegin,onChunk,onEnd,onResolve,onReject}
-    nextId: 1,
-    readyCbs: [],
-  },
+            // NKN runtime
+            nkn: {
+                client: null,
+                addr: '',
+                ready: false,
+                pending: new Map(), // single-response
+                streams: new Map(), // id -> ctx
+                nextId: 1,
+                readyCbs: [],
+            },
 
-  ac: null,
-  scriptNode: null,
-  pcmQueue: [],
-  queuedSamples: 0,
-  reader: null,
-  aborter: null,
-  targetPcmRate: 22050,
-};
-
-/* ========== HELPERS ========== */
-function qs(id){ return document.getElementById(id) }
-function j(x){ return JSON.stringify(x, null, 2) }
-function now(){ return Math.floor(Date.now()/1000) }
-function b64ToBytes(b64){
-  const bin = atob(b64); const len = bin.length;
-  const bytes = new Uint8Array(len);
-  for (let i=0;i<len;i++) bytes[i] = bin.charCodeAt(i);
-  return bytes;
-}
-function updateSessInfo(){
-  const si = qs('sessInfo');
-  if (S.sessionKey && S.sessionExp && S.sessionExp > now()) {
-    const ttl = S.sessionExp - now();
-    si.textContent = `bearer • ${ttl}s`;
-  } else {
-    si.textContent = 'none';
-  }
-}
-function saveSettings(){
-  S.transport = qs('transport').value;
-  S.base = qs('baseUrl').value.trim() || S.base;
-  S.relayAddr = qs('relayAddr').value.trim();
-  S.apiKey = qs('apiKey').value.trim();
-  localStorage.setItem('tts.transport', S.transport);
-  localStorage.setItem('tts.base', S.base);
-  localStorage.setItem('tts.relayAddr', S.relayAddr);
-  localStorage.setItem('tts.apiKey', S.apiKey);
-  toast('Saved settings');
-  reflectTransportUI();
-  if (S.transport === 'nkn') nknEnsureClient();
-}
-function setInputsFromState(){
-  qs('transport').value = S.transport;
-  qs('baseUrl').value = S.base;
-  qs('relayAddr').value = S.relayAddr;
-  qs('apiKey').value  = S.apiKey;
-  updateSessInfo();
-}
-function toast(txt, ok=true){
-  const st = qs('status');
-  st.innerHTML = `<span class="dot ${ok?'ok':'err'}"></span><span>${txt}</span>`;
-  setTimeout(()=>{ st.innerHTML = `<span class="dot ok"></span><span>Ready</span>`; }, 1800);
-}
-function authHeaders(h={}) {
-  const headers = Object.assign({'Content-Type':'application/json'}, h);
-  const fresh = S.sessionKey && S.sessionExp && S.sessionExp > now();
-  if (fresh) headers['Authorization'] = `Bearer ${S.sessionKey}`;
-  else if (S.apiKey) headers['X-API-Key'] = S.apiKey;
-  return headers;
-}
-function reflectTransportUI(){
-  const nknInfo = qs('nknInfo');
-  if (S.transport === 'nkn') {
-    nknInfo.textContent = S.nkn.ready ? `connected • ${S.nkn.addr.slice(0,10)}…` : 'connecting…';
-  } else {
-    nknInfo.textContent = 'disabled';
-  }
-}
-
-/* ========== NKN LAYER ========== */
-function nknEnsureClient(){
-  if (S.nkn.client) return;
-  if (!window.nkn || !(window.nkn.MultiClient || window.nkn.Client)) {
-    toast('nkn-sdk not loaded', false);
-    return;
-  }
-  const client = new nkn.MultiClient({ identifier: 'webui', numSubClients: 4 });
-  S.nkn.client = client;
-
-  client.on('connect', () => {
-    S.nkn.addr = client.addr || '';
-    S.nkn.ready = true;
-    (S.nkn.readyCbs||[]).forEach(fn=>{ try{ fn(); }catch{} });
-    S.nkn.readyCbs.length = 0;
-    reflectTransportUI();
-    toast('NKN connected');
-  });
-
-  // Global dispatcher: single-shot and streaming (ordered by seq)
-  client.on('message', (a,b) => {
-    let src, payload;
-    if (a && typeof a === 'object' && a.payload !== undefined) { src = a.src; payload = a.payload; }
-    else { src = a; payload = b; }
-    try {
-      const txt = (payload && payload.toString) ? payload.toString() : (''+payload);
-      const msg = JSON.parse(txt);
-      const ev  = (msg && msg.event) || '';
-      const id  = msg && msg.id;
-
-      // streaming path
-    if (/^relay\.response\.(begin|chunk|end|keepalive)$/.test(ev) && id) {
-    const ctx = S.nkn.streams.get(id);
-    if (!ctx) return;
-
-    // helpers placed on ctx the first time we need them
-    function ensureStreamState() {
-        if (ctx.__inited) return;
-        ctx.__inited   = true;
-        ctx.expected   = 1;                      // next seq we want to deliver
-        ctx.pending    = new Map();              // out-of-order stash: seq -> bytes
-        ctx.leftover   = new Uint8Array(0);      // not used here, but left for handlers
-        ctx.ended      = false;                  // saw end frame yet?
-        ctx.lastSeq    = null;                   // last expected seq from end frame
-        ctx.endTimer   = null;                   // guard timer after end
-        ctx.setEndTimer = (ms=1500)=>{
-        if (ctx.endTimer) clearTimeout(ctx.endTimer);
-        ctx.endTimer = setTimeout(()=> {
-            // If we still haven't completed naturally, force-complete
-            finish('timeout');
-        }, ms);
+            ac: null,
+            scriptNode: null,
+            pcmQueue: [],
+            queuedSamples: 0,
+            reader: null,
+            aborter: null,
+            targetPcmRate: 22050,
         };
-        ctx.maybeFinish = ()=>{
-        if (!ctx.ended) return false;
-        if (ctx.lastSeq == null) return false;
-        if (ctx.expected > ctx.lastSeq && ctx.pending.size === 0) {
-            finish('natural');
-            return true;
+
+        /* ========== HELPERS ========== */
+        function qs(id) { return document.getElementById(id) }
+        function j(x) { return JSON.stringify(x, null, 2) }
+        function now() { return Math.floor(Date.now() / 1000) }
+        function b64ToBytes(b64) {
+            const bin = atob(b64); const len = bin.length;
+            const bytes = new Uint8Array(len);
+            for (let i = 0; i < len; i++) bytes[i] = bin.charCodeAt(i);
+            return bytes;
         }
-        return false;
-        };
-    }
-
-    function finish(reason){
-        if (ctx.__done) return;
-        ctx.__done = true;
-        if (ctx.endTimer) { clearTimeout(ctx.endTimer); ctx.endTimer = null; }
-        // Resolve vs reject based on ok flag the end frame carried
-        if (ctx._endOk === false && ctx.onReject) {
-        ctx.onReject(new Error(ctx._endErr || 'stream error'));
-        } else if (ctx.onResolve) {
-        ctx.onResolve(ctx._endMsg || { id, ok: true, reason });
+        function updateSessInfo() {
+            const si = qs('sessInfo');
+            if (S.sessionKey && S.sessionExp && S.sessionExp > now()) {
+                const ttl = S.sessionExp - now();
+                si.textContent = `bearer • ${ttl}s`;
+            } else {
+                si.textContent = 'none';
+            }
         }
-        S.nkn.streams.delete(id);
-    }
-
-    if (ev === 'relay.response.begin') {
-        ensureStreamState();
-        // let the consumer know
-        ctx.onBegin && ctx.onBegin(msg);
-        return;
-    }
-
-    if (ev === 'relay.response.chunk') {
-        ensureStreamState();
-        const seq = msg.seq|0;
-        const bytes = b64ToBytes(msg.b64 || '');
-        if (seq === ctx.expected) {
-        // deliver now
-        ctx.onChunk && ctx.onChunk(bytes, seq);
-        ctx.expected++;
-        // and flush any immediately following buffered chunks
-        while (ctx.pending.has(ctx.expected)) {
-            const b = ctx.pending.get(ctx.expected);
-            ctx.pending.delete(ctx.expected);
-            ctx.onChunk && ctx.onChunk(b, ctx.expected);
-            ctx.expected++;
+        function toast(txt, ok = true) {
+            const st = qs('status');
+            st.innerHTML = `<span class="dot ${ok ? 'ok' : 'err'}"></span><span>${txt}</span>`;
+            setTimeout(() => { st.innerHTML = `<span class="dot ok"></span><span>Ready</span>`; }, 1800);
         }
-        ctx.maybeFinish();
-        } else if (seq > ctx.expected) {
-        ctx.pending.set(seq, bytes);
-        } // else: late/dup -> drop
-        return;
-    }
-
-    if (ev === 'relay.response.end') {
-        ensureStreamState();
-        // Store end info but DO NOT delete ctx yet
-        ctx._endMsg = msg;
-        ctx._endOk  = (msg.ok !== false);
-        ctx._endErr = msg.error || null;
-        ctx.ended   = true;
-
-        // Prefer server-provided last_seq; fallback to best guess
-        const ls = (typeof msg.last_seq === 'number' && msg.last_seq >= 0)
-        ? msg.last_seq
-        : ((typeof msg.seq === 'number' && msg.seq >= 0) ? msg.seq : (ctx.expected - 1));
-        ctx.lastSeq = ls;
-
-        if (!ctx.maybeFinish()) {
-        // Give a little time for any stragglers to arrive
-        ctx.setEndTimer(1500);
+        function authHeaders(h = {}) {
+            const headers = Object.assign({ 'Content-Type': 'application/json' }, h);
+            const fresh = S.sessionKey && S.sessionExp && S.sessionExp > now();
+            if (fresh) headers['Authorization'] = `Bearer ${S.sessionKey}`;
+            else if (S.apiKey) headers['X-API-Key'] = S.apiKey;
+            return headers;
         }
-        return;
-    }
-
-    if (ev === 'relay.response.keepalive') {
-        // optional UI hook
-        return;
-    }
-    }
-
-      // single-response path
-      if (ev === 'relay.response' && id) {
-        const p = S.nkn.pending.get(id);
-        if (p) { clearTimeout(p.timer); S.nkn.pending.delete(id); p.resolve(msg); }
-      }
-    } catch { /* ignore non-json */ }
-  });
-
-  client.on('close', ()=>{ S.nkn.ready=false; reflectTransportUI(); });
-}
-
-function nknWaitReady(timeoutMs=20000){
-  return new Promise((resolve, reject)=>{
-    if (S.nkn.ready) return resolve();
-    nknEnsureClient();
-    const t = setTimeout(()=>{ cleanup(); reject(new Error('NKN connect timeout')); }, timeoutMs);
-    function onReady(){ cleanup(); resolve(); }
-    function cleanup(){
-      clearTimeout(t);
-      S.nkn.readyCbs = (S.nkn.readyCbs||[]).filter(fn=>fn!==onReady);
-    }
-    (S.nkn.readyCbs = S.nkn.readyCbs || []).push(onReady);
-  });
-}
-
-async function nknSendRelayStream(reqSpec, handlers={}, timeoutMs=120000){
-  if (!S.relayAddr) throw new Error('No relay address set');
-  await nknWaitReady();
-  const client = S.nkn.client;
-  const id = 'web-' + Date.now() + '-' + (S.nkn.nextId++);
-
-  const ctx = {
-    onBegin: handlers.onBegin || null,
-    onChunk: handlers.onChunk || null,
-    onEnd:   handlers.onEnd   || null,
-    leftover: new Uint8Array(0),
-    expected: 1,
-    pending: new Map(),
-    onResolve: null,
-    onReject: null,
-  };
-
-  const p = new Promise((resolve, reject)=>{
-    ctx.onResolve = (m)=>{ handlers.onEnd && handlers.onEnd(m); resolve(m); };
-    ctx.onReject  = (e)=>{ reject(e); };
-  });
-
-  S.nkn.streams.set(id, ctx);
-
-  // explicit stream hint
-  const data = { event:'http.request', id, req: Object.assign({ stream:'chunks' }, reqSpec) };
-
-  const timer = setTimeout(()=>{
-    if (S.nkn.streams.has(id)) {
-      S.nkn.streams.delete(id);
-      ctx.onReject && ctx.onReject(new Error('NKN relay timeout'));
-    }
-  }, timeoutMs);
-
-  p.finally(()=> clearTimeout(timer));
-
-  await client.send(S.relayAddr, JSON.stringify(data), { noReply: true, maxHoldingSeconds: 120 });
-  return p;
-}
-
-async function nknSendRelay(reqSpec, timeoutMs=45000){
-  if (!S.relayAddr) throw new Error('No relay address set');
-  await nknWaitReady();
-  const client = S.nkn.client;
-  const id = 'web-' + Date.now() + '-' + (S.nkn.nextId++);
-  const data = { event:'http.request', id, req: reqSpec };
-  return new Promise((resolve, reject)=>{
-    const timer = setTimeout(()=>{
-      S.nkn.pending.delete(id);
-      reject(new Error('NKN relay timeout'));
-    }, timeoutMs);
-    S.nkn.pending.set(id, { resolve, reject, timer });
-    client.send(S.relayAddr, JSON.stringify(data), { noReply: true, maxHoldingSeconds: 120 })
-      .catch(err=>{
-        clearTimeout(timer);
-        S.nkn.pending.delete(id);
-        reject(err);
-      });
-  });
-}
-
-async function nknFetchJSON(path, method='GET', bodyObj=null, headers={}){
-  const req = {
-    url: S.base.replace(/\/+$/,'') + path,
-    method,
-    headers,
-    timeout_ms: 45000,
-  };
-  if (bodyObj !== null) req.json = bodyObj;
-  const resp = await nknSendRelay(req, req.timeout_ms);
-  if (!resp || resp.ok === false) throw new Error((resp && resp.error) || ('HTTP '+(resp && resp.status)));
-  if (resp.json !== null && resp.json !== undefined) return resp.json;
-  if (resp.body_b64){
-    try {
-      const bytes = b64ToBytes(resp.body_b64);
-      const txt = new TextDecoder('utf-8').decode(bytes);
-      return JSON.parse(txt);
-    } catch(e){
-      throw new Error('Non-JSON body over relay');
-    }
-  }
-  return null;
-}
-async function nknFetchBlob(fullUrl){
-  const req = { url: fullUrl, method: 'GET', headers: authHeaders({}), timeout_ms: 90000 };
-  const resp = await nknSendRelay(req, req.timeout_ms);
-  if (!resp || resp.ok === false) throw new Error((resp && resp.error) || ('HTTP '+(resp && resp.status)));
-  const hdrs = resp.headers || {};
-  const ct = hdrs['content-type'] || hdrs['Content-Type'] || 'application/octet-stream';
-  if (!resp.body_b64) throw new Error('No body from relay');
-  const bytes = b64ToBytes(resp.body_b64);
-  if (resp.truncated) toast('Relay truncated body — increase RELAY_MAX_BODY_B', false);
-  return new Blob([bytes], { type: ct });
-}
-
-/* ========== BASIC CALLS (transport-aware) ========== */
-async function callJSON(path, bodyObj, extraHeaders) {
-  if (S.transport === 'nkn') {
-    return nknFetchJSON(path, 'POST', bodyObj||{}, authHeaders(extraHeaders||{}));
-  }
-  const res = await fetch(S.base.replace(/\/+$/,'') + path, {
-    method: 'POST',
-    headers: authHeaders(extraHeaders),
-    body: JSON.stringify(bodyObj||{})
-  });
-  if (!res.ok) throw new Error(`${res.status} ${res.statusText}`);
-  return res.json();
-}
-async function getJSON(path, extraHeaders) {
-  if (S.transport === 'nkn') {
-    return nknFetchJSON(path, 'GET', null, authHeaders(extraHeaders||{}));
-  }
-  const res = await fetch(S.base.replace(/\/+$/,'') + path, { headers: authHeaders(extraHeaders) });
-  if (!res.ok) throw new Error(`${res.status} ${res.statusText}`);
-  return res.json();
-}
-
-/* ========== HEALTH & MODELS ========== */
-async function doHealth(){
-  try {
-    const data = await getJSON('/health');
-    const hb = qs('healthBox');
-    hb.style.display = 'block';
-    hb.textContent = j(data);
-    const st = qs('status');
-    st.innerHTML = `<span class="dot ${data.status==='ok'?'ok':'warn'}"></span><span>${data.piper==='ready'?'Piper ready':'Piper missing'}</span>`;
-  } catch(e){
-    qs('healthBox').style.display = 'block';
-    qs('healthBox').textContent = 'Error: ' + e.message;
-    toast('Health error', false);
-  }
-}
-async function doModels(){
-  try {
-    const data = await getJSON('/models');
-    const mb = qs('modelsBox');
-    mb.style.display = 'block';
-    mb.textContent = j(data);
-    const dl = qs('modelList'); dl.innerHTML = '';
-    (data.models || []).forEach(m=>{
-      const opt = document.createElement('option');
-      opt.value = m.name || m.model || '';
-      dl.appendChild(opt);
-    });
-    toast('Loaded models');
-  } catch(e){
-    qs('modelsBox').style.display = 'block';
-    qs('modelsBox').textContent = 'Error: ' + e.message;
-    toast('Models error', false);
-  }
-}
-
-/* ========== AUTH: HANDSHAKE ========== */
-async function doHandshake(){
-  if (!S.apiKey && !(S.sessionKey && S.sessionExp > now())) { toast('Enter API key first', false); return; }
-  try {
-    const data = await callJSON('/handshake', { api_key:S.apiKey });
-    S.sessionKey = data.session_key;
-    S.sessionExp = now() + (data.expires_in|0);
-    localStorage.setItem('tts.sessionKey', S.sessionKey);
-    localStorage.setItem('tts.sessionExp', String(S.sessionExp));
-    updateSessInfo();
-    toast('Session established');
-  } catch(e){
-    toast('Handshake failed', false);
-  }
-}
-function clearSession(){
-  S.sessionKey=''; S.sessionExp=0;
-  localStorage.removeItem('tts.sessionKey');
-  localStorage.removeItem('tts.sessionExp');
-  updateSessInfo();
-  toast('Session cleared');
-}
-
-/* ========== FILE MODE ========== */
-async function doFile(){
-  const text   = qs('fileText').value.trim() || 'Hello from the TTS service!';
-  const format = qs('fileFormat').value;
-  const volume = parseFloat(qs('fileVol').value || '1') || 1.0;
-  const model  = qs('modelName').value.trim();
-  try {
-    const body = { text, mode:'file', format, volume };
-    if (model) body.model = model;
-
-    const data = await callJSON('/speak', body);
-    const log = qs('fileLog'); log.style.display='block'; log.textContent=j(data);
-    const f = (data.files && data.files[0]) ? data.files[0] : null;
-    if (!f) { toast('No file returned', false); return; }
-
-    const fileUrl = S.base.replace(/\/+$/,'') + (f.url || '');
-    let blob;
-    if (S.transport === 'nkn') blob = await nknFetchBlob(fileUrl);
-    else { const r = await fetch(fileUrl, { headers: authHeaders() }); blob = await r.blob(); }
-
-    const objUrl = URL.createObjectURL(blob);
-    const a = qs('fileAudio'); a.src = objUrl; a.play().catch(()=>{});
-    const dl = qs('fileDownload'); dl.href = objUrl; dl.download = f.filename || 'tts';
-    qs('fileMeta').textContent = `${blob.type} • ${(blob.size/1024).toFixed(1)} KB`;
-    qs('fileResult').style.display='flex';
-    toast('File ready');
-  } catch(e){
-    const log = qs('fileLog'); log.style.display='block'; log.textContent='Error: '+e.message;
-    toast('File generation failed', false);
-  }
-}
-
-/* ========== STREAM MODE (RAW PCM → WebAudio) ========== */
-function ensureAudioContext() {
-  if (S.ac) return S.ac;
-  try { S.ac = new (window.AudioContext || window.webkitAudioContext)({ sampleRate: S.targetPcmRate }); }
-  catch { S.ac = new (window.AudioContext || window.webkitAudioContext)(); }
-  const node = S.ac.createScriptProcessor(4096, 1, 1);
-  node.onaudioprocess = e => {
-    const out = e.outputBuffer.getChannelData(0);
-    if (!S.pcmQueue.length) { out.fill(0); return; }
-    let need = out.length, off = 0;
-    while (need > 0) {
-      if (!S.pcmQueue.length) { out.fill(0, off); break; }
-      const head = S.pcmQueue[0];
-      const take = Math.min(need, head.length);
-      out.set(head.subarray(0, take), off);
-      if (take === head.length) S.pcmQueue.shift();
-      else S.pcmQueue[0] = head.subarray(take);
-      S.queuedSamples -= take; off += take; need -= take;
-    }
-    qs('bufInfo').textContent = S.queuedSamples.toString();
-  };
-  node.connect(S.ac.destination);
-  S.scriptNode = node;
-  qs('acInfo').textContent = `${S.ac.sampleRate} Hz`;
-  return S.ac;
-}
-function int16ToFloat32(int16){ const out = new Float32Array(int16.length); for (let i=0;i<int16.length;i++) out[i] = Math.max(-1, Math.min(1, int16[i]/32768)); return out; }
-function resampleLinear(input, fromRate, toRate){
-  if (fromRate === toRate) return input;
-  const ratio = toRate / fromRate; const newLen = Math.round(input.length * ratio);
-  const out = new Float32Array(newLen);
-  for (let i=0;i<newLen;i++){ const pos=i/ratio; const i0=Math.floor(pos); const i1=Math.min(i0+1,input.length-1); const frac=pos-i0; out[i]=input[i0]*(1-frac)+input[i1]*frac; }
-  return out;
-}
-function enqueuePcmF32(f32){ S.pcmQueue.push(f32); S.queuedSamples += f32.length; qs('bufInfo').textContent = S.queuedSamples.toString(); }
-
-async function doStreamHTTP(){
-  const text   = qs('streamText').value.trim() || 'Streaming from the TTS service.';
-  const volume = parseFloat(qs('streamVol').value || '1') || 1.0;
-  let   format = qs('streamFormat').value;
-  const model  = qs('modelName').value.trim();
-  if (format !== 'raw') { format = 'raw'; qs('streamFormat').value = 'raw'; }
-  ensureAudioContext(); await S.ac.resume();
-  if (S.aborter) S.aborter.abort();
-  S.pcmQueue.length = 0; S.queuedSamples = 0;
-  const body = { text, mode:'stream', format, volume }; if (model) body.model = model;
-  const ctrl = new AbortController(); S.aborter = ctrl;
-  const log = qs('streamLog'); log.style.display='block'; log.textContent='(streaming)';
-  try {
-    const res = await fetch(S.base.replace(/\/+$/,'') + '/speak', {
-      method: 'POST', headers: authHeaders({'Content-Type':'application/json'}),
-      body: JSON.stringify(body), signal: ctrl.signal
-    });
-    if (!res.ok || !res.body) throw new Error(`${res.status} ${res.statusText}`);
-    const reader = res.body.getReader(); S.reader = reader;
-    let leftover = new Uint8Array(0);
-    const targetRate = S.ac.sampleRate || S.targetPcmRate;
-    while (true) {
-      const { value, done } = await reader.read();
-      if (done) break; if (!value || !value.byteLength) continue;
-      const buf = new Uint8Array(leftover.length + value.length);
-      buf.set(leftover, 0); buf.set(value, leftover.length);
-      const wholeFrames = Math.floor(buf.length / 2);
-      const evenBytes = wholeFrames * 2;
-      const bodyBytes = buf.subarray(0, evenBytes);
-      leftover = buf.subarray(evenBytes);
-      const view = new DataView(bodyBytes.buffer, bodyBytes.byteOffset, bodyBytes.byteLength);
-      const int16 = new Int16Array(wholeFrames);
-      for (let i=0;i<wholeFrames;i++) int16[i] = view.getInt16(i*2, true);
-      let f32 = int16ToFloat32(int16);
-      if (targetRate !== 22050) f32 = resampleLinear(f32, 22050, targetRate);
-      enqueuePcmF32(f32);
-    }
-    log.textContent = '(stream ended)';
-    toast('Stream complete');
-  } catch(e){
-    if (e.name !== 'AbortError') { log.textContent = 'Stream error: ' + e.message; toast('Stream error', false); }
-    else { log.textContent = '(stopped)'; }
-  } finally { S.reader = null; S.aborter = null; }
-}
-
-async function doStreamNKN(){
-  const text   = qs('streamText').value.trim() || 'Streaming from the TTS service.';
-  const volume = parseFloat(qs('streamVol').value || '1') || 1.0;
-  const model  = qs('modelName').value.trim();
-
-  ensureAudioContext(); await S.ac.resume();
-  S.pcmQueue.length = 0; S.queuedSamples = 0;
-
-  const log = qs('streamLog'); log.style.display='block'; log.textContent='(requesting via relay, chunked)';
-  const req = {
-    url: S.base.replace(/\/+$/,'') + '/speak',
-    method: 'POST',
-    headers: authHeaders({'Content-Type':'application/json', 'X-Relay-Stream':'chunks'}),
-    json: { text, mode:'stream', format:'raw', volume, ...(model?{model}:{}) },
-    timeout_ms: 120000
-  };
-
-  // per-stream reassembly state
-  let leftover = new Uint8Array(0);
-  let expected = 1;
-  const buf = new Map();     // seq -> Uint8Array
-  let ended = false;
-  let lastSeq = null;
-
-  function handlePcmBytes(bytes){
-    // combine with leftover; ensure even bytes for int16
-    const merged = new Uint8Array(leftover.length + bytes.length);
-    merged.set(leftover, 0); merged.set(bytes, leftover.length);
-    const wholeFrames = Math.floor(merged.length / 2);
-    const evenBytes = wholeFrames * 2;
-    const bodyBytes = merged.subarray(0, evenBytes);
-    leftover = merged.subarray(evenBytes);
-
-    if (!evenBytes) return;
-    const view = new DataView(bodyBytes.buffer, bodyBytes.byteOffset, bodyBytes.byteLength);
-    const int16 = new Int16Array(wholeFrames);
-    for (let i=0;i<wholeFrames;i++) int16[i] = view.getInt16(i*2, true);
-
-    let f32 = int16ToFloat32(int16);
-    const targetRate = S.ac.sampleRate || S.targetPcmRate;
-    if (targetRate !== 22050) f32 = resampleLinear(f32, 22050, targetRate);
-    enqueuePcmF32(f32);
-  }
-
-  function flushInOrder(){
-    while (buf.has(expected)) {
-      const bytes = buf.get(expected);
-      buf.delete(expected);
-      handlePcmBytes(bytes);
-      expected++;
-    }
-    // Finish only when we've flushed exactly through the announced lastSeq
-    if (ended && lastSeq !== null && expected > lastSeq) {
-      if (leftover.length) leftover = new Uint8Array(0); // drop odd trailing byte if any
-      log.textContent = '(stream ended)';
-      toast('Stream complete');
-    }
-  }
-
-  try {
-    await nknSendRelayStream(req, {
-      onBegin: (m)=>{
-        leftover = new Uint8Array(0);
-        expected = 1;
-        buf.clear();
-        ended = false;
-        lastSeq = null;
-        log.textContent = `(stream begin ${m.status||''})`;
-      },
-      onChunk: (bytes, seq)=>{
-        // Some senders may not include seq in the handler call; derive if needed
-        const s = (typeof seq === 'number' && seq > 0) ? seq : null;
-        if (s === null) {
-          // Fallback: not ideal, but store with a growing key (rarely needed)
-          // Better to depend on seq in the message; our relay includes it.
-          return;
+        function reflectTransportUI() {
+            const nknInfo = qs('nknInfo');
+            if (S.transport === 'nkn') {
+                nknInfo.textContent = S.nkn.ready ? `connected • ${S.nkn.addr.slice(0, 10)}…` : 'connecting…';
+            } else {
+                nknInfo.textContent = 'disabled';
+            }
         }
-        buf.set(s, bytes);
-        flushInOrder();
-      },
-      onEnd:   (m)=>{
-        ended = true;
-        // server now supplies last_seq; fall back to current highest in map if missing
-        lastSeq = (typeof m.last_seq === 'number' && m.last_seq >= 0) ? m.last_seq : Math.max(0, ...buf.keys());
-        flushInOrder();
-      },
-    }, req.timeout_ms);
-  } catch(e){
-    log.textContent = 'Stream error: ' + (e && e.message ? e.message : e);
-    toast('Stream error', false);
-  }
-}
+        function filenameFromHeaders(h, fallback = 'tts') {
+            const cd = (h['content-disposition'] || h['Content-Disposition'] || '') + '';
+            const m = cd.match(/filename\*=UTF-8''([^;]+)|filename="?([^\";]+)"?/i);
+            if (m) return decodeURIComponent(m[1] || m[2] || fallback);
+            return fallback;
+        }
+
+        /* ========== NKN LAYER ========== */
+        function nknEnsureClient() {
+            if (S.nkn.client) return;
+            if (!window.nkn || !(window.nkn.MultiClient || window.nkn.Client)) { toast('nkn-sdk not loaded', false); return; }
+            const client = new nkn.MultiClient({ identifier: 'webui', numSubClients: 4 });
+            S.nkn.client = client;
+
+            client.on('connect', () => {
+                S.nkn.addr = client.addr || '';
+                S.nkn.ready = true;
+                (S.nkn.readyCbs || []).forEach(fn => { try { fn(); } catch { } });
+                S.nkn.readyCbs.length = 0;
+                reflectTransportUI();
+                toast('NKN connected');
+            });
+
+            // Ordered streaming dispatcher with end/last_seq safety
+            client.on('message', (a, b) => {
+                let src, payload;
+                if (a && typeof a === 'object' && a.payload !== undefined) { src = a.src; payload = a.payload; }
+                else { src = a; payload = b; }
+                try {
+                    const txt = (payload && payload.toString) ? payload.toString() : ('' + payload);
+                    const msg = JSON.parse(txt);
+                    const ev = (msg && msg.event) || '';
+                    const id = msg && msg.id;
+
+                    if (/^relay\.response\.(begin|chunk|end|keepalive)$/.test(ev) && id) {
+                        const ctx = S.nkn.streams.get(id);
+                        if (!ctx) return;
+
+                        function init() {
+                            if (ctx.__init) return;
+                            ctx.__init = true;
+                            ctx.expected = 1;
+                            ctx.pending = new Map(); // seq->Uint8Array
+                            ctx.ended = false;
+                            ctx.lastSeq = null;
+                            ctx.endTimer = null;
+                            ctx.setEndTimer = (ms = 1500) => {
+                                clearTimeout(ctx.endTimer);
+                                ctx.endTimer = setTimeout(() => finalize('timeout'), ms);
+                            };
+                        }
+
+                        function flush() {
+                            while (ctx.pending.has(ctx.expected)) {
+                                const bytes = ctx.pending.get(ctx.expected);
+                                ctx.pending.delete(ctx.expected);
+                                try { ctx.onChunk && ctx.onChunk(bytes, ctx.expected); } catch { }
+                                ctx.expected++;
+                            }
+                            if (ctx.ended && ctx.lastSeq != null && ctx.expected > ctx.lastSeq && ctx.pending.size === 0) {
+                                finalize('natural');
+                            }
+                        }
+
+                        function finalize(reason) {
+                            if (ctx.__done) return;
+                            ctx.__done = true;
+                            clearTimeout(ctx.endTimer);
+                            try { ctx.onEnd && ctx.onEnd(ctx._endMsg || { ok: true, reason }); } catch { }
+                            if (ctx._endOk === false) {
+                                ctx.onReject && ctx.onReject(new Error(ctx._endErr || 'stream error'));
+                            } else {
+                                ctx.onResolve && ctx.onResolve(ctx._endMsg || { ok: true, reason });
+                            }
+                            S.nkn.streams.delete(id);
+                        }
+
+                        if (ev === 'relay.response.begin') {
+                            init();
+                            try { ctx.onBegin && ctx.onBegin(msg); } catch { }
+                            return;
+                        }
+
+                        if (ev === 'relay.response.chunk') {
+                            init();
+                            const seq = msg.seq | 0;
+                            const bytes = b64ToBytes(msg.b64 || '');
+                            if (seq === ctx.expected) {
+                                try { ctx.onChunk && ctx.onChunk(bytes, seq); } catch { }
+                                ctx.expected++;
+                                flush();
+                            } else if (seq > ctx.expected) {
+                                ctx.pending.set(seq, bytes);
+                            }
+                            return;
+                        }
+
+                        if (ev === 'relay.response.end') {
+                            init();
+                            ctx._endMsg = msg;
+                            ctx._endOk = (msg.ok !== false);
+                            ctx._endErr = msg.error || null;
+                            ctx.ended = true;
+                            const ls = (typeof msg.last_seq === 'number' && msg.last_seq >= 0) ? msg.last_seq
+                                : ((typeof msg.seq === 'number' && msg.seq >= 0) ? msg.seq : (ctx.expected - 1));
+                            ctx.lastSeq = ls;
+                            flush();
+                            if (!ctx.__done) ctx.setEndTimer(1500);
+                            return;
+                        }
+
+                        if (ev === 'relay.response.keepalive') return;
+                    }
+
+                    // single response
+                    if (ev === 'relay.response' && id) {
+                        const p = S.nkn.pending.get(id);
+                        if (p) { clearTimeout(p.timer); S.nkn.pending.delete(id); p.resolve(msg); }
+                    }
+                } catch { /* ignore */ }
+            });
+
+            client.on('close', () => { S.nkn.ready = false; reflectTransportUI(); });
+        }
+
+        function nknWaitReady(timeoutMs = 20000) {
+            return new Promise((resolve, reject) => {
+                if (S.nkn.ready) return resolve();
+                nknEnsureClient();
+                const t = setTimeout(() => { cleanup(); reject(new Error('NKN connect timeout')); }, timeoutMs);
+                function onReady() { cleanup(); resolve(); }
+                function cleanup() {
+                    clearTimeout(t);
+                    S.nkn.readyCbs = (S.nkn.readyCbs || []).filter(fn => fn !== onReady);
+                }
+                (S.nkn.readyCbs = S.nkn.readyCbs || []).push(onReady);
+            });
+        }
+
+        async function nknSendRelayStream(reqSpec, handlers = {}, timeoutMs = 120000) {
+            if (!S.relayAddr) throw new Error('No relay address set');
+            await nknWaitReady();
+            const client = S.nkn.client;
+            const id = 'web-' + Date.now() + '-' + (S.nkn.nextId++);
+
+            const ctx = {
+                onBegin: handlers.onBegin || null,
+                onChunk: handlers.onChunk || null,
+                onEnd: handlers.onEnd || null,
+                onResolve: null,
+                onReject: null,
+            };
+
+            const p = new Promise((resolve, reject) => {
+                ctx.onResolve = (m) => { try { handlers.onEnd && handlers.onEnd(m); } catch { } resolve(m); };
+                ctx.onReject = (e) => { reject(e); };
+            });
+
+            S.nkn.streams.set(id, ctx);
+            const data = { event: 'http.request', id, req: Object.assign({ stream: 'chunks' }, reqSpec) };
+
+            const timer = setTimeout(() => {
+                if (S.nkn.streams.has(id)) {
+                    S.nkn.streams.delete(id);
+                    ctx.onReject && ctx.onReject(new Error('NKN relay timeout'));
+                }
+            }, timeoutMs);
+            p.finally(() => clearTimeout(timer));
+
+            await client.send(S.relayAddr, JSON.stringify(data), { noReply: true, maxHoldingSeconds: 120 });
+            return p;
+        }
+
+        async function nknSendRelay(reqSpec, timeoutMs = 45000) {
+            if (!S.relayAddr) throw new Error('No relay address set');
+            await nknWaitReady();
+            const client = S.nkn.client;
+            const id = 'web-' + Date.now() + '-' + (S.nkn.nextId++);
+            const data = { event: 'http.request', id, req: reqSpec };
+            return new Promise((resolve, reject) => {
+                const timer = setTimeout(() => {
+                    S.nkn.pending.delete(id);
+                    reject(new Error('NKN relay timeout'));
+                }, timeoutMs);
+                S.nkn.pending.set(id, { resolve, reject, timer });
+                client.send(S.relayAddr, JSON.stringify(data), { noReply: true, maxHoldingSeconds: 120 })
+                    .catch(err => { clearTimeout(timer); S.nkn.pending.delete(id); reject(err); });
+            });
+        }
+
+        async function nknFetchJSON(path, method = 'GET', bodyObj = null, headers = {}, timeoutMs = 45000) {
+            const req = {
+                url: S.base.replace(/\/+$/, '') + path,
+                method,
+                headers,
+                timeout_ms: timeoutMs,
+            };
+            if (bodyObj !== null) req.json = bodyObj;
+            const resp = await nknSendRelay(req, req.timeout_ms);
+            if (!resp || resp.ok === false) throw new Error((resp && resp.error) || ('HTTP ' + (resp && resp.status)));
+            if (resp.json !== null && resp.json !== undefined) return resp.json;
+            if (resp.body_b64) {
+                const bytes = b64ToBytes(resp.body_b64);
+                const txt = new TextDecoder('utf-8').decode(bytes);
+                return JSON.parse(txt);
+            }
+            return null;
+        }
+
+        // ⚠️ New: chunked file fetch over NKN streaming (small DMs, ordered, end‐guarded)
+        async function nknFetchFileStream(fullUrl) {
+            await nknWaitReady();
+            const parts = [];
+            let total = 0;
+            let headers = {};
+            let mime = 'application/octet-stream';
+            let name = 'tts';
+
+            await nknSendRelayStream({
+                url: fullUrl,
+                method: 'GET',
+                headers: authHeaders({ 'X-Relay-Stream': 'chunks' }),
+                timeout_ms: 300000
+            }, {
+                onBegin: (m) => {
+                    headers = m.headers || {};
+                    mime = (headers['content-type'] || headers['Content-Type'] || mime);
+                    name = filenameFromHeaders(headers, 'tts');
+                    const cl = headers['content-length'] || headers['Content-Length'];
+                    if (cl) {
+                        const log = qs('fileLog'); log.style.display = 'block';
+                        log.textContent = `(downloading) content-length: ${cl}`;
+                    }
+                },
+                onChunk: (bytes /* Uint8Array */, seq) => {
+                    parts.push(bytes);
+                    total += bytes.length;
+                    if (total % (256 * 1024) < bytes.length) { // update UI roughly every 256KiB
+                        qs('fileLog').style.display = 'block';
+                        qs('fileLog').textContent = `(downloading) ${Math.round(total / 1024)} KB…`;
+                    }
+                },
+                onEnd: (m) => {
+                    // assemble
+                    const out = new Uint8Array(total);
+                    let off = 0;
+                    for (const p of parts) { out.set(p, off); off += p.length; }
+                    const blob = new Blob([out], { type: mime });
+                    const objUrl = URL.createObjectURL(blob);
+                    // Primary audio widgets
+                    const a = qs('fileAudio'); a.src = objUrl; a.play().catch(() => { });
+                    const dl = qs('fileDownload'); dl.href = objUrl; dl.download = name;
+                    qs('fileMeta').textContent = `${blob.type} • ${(blob.size / 1024).toFixed(1)} KB`;
+                    qs('fileResult').style.display = 'flex';
+                    // List chip
+                    const list = qs('fileList'); list.style.display = 'flex';
+                    const chip = document.createElement('a');
+                    chip.className = 'chip'; chip.href = objUrl; chip.download = name; chip.textContent = `⬇ ${name} (${(blob.size / 1024).toFixed(1)} KB)`;
+                    list.appendChild(chip);
+                    qs('fileLog').style.display = 'block';
+                    qs('fileLog').textContent = `(completed) ${name} • ${(blob.size / 1024).toFixed(1)} KB`;
+                    toast('File ready');
+                }
+            }, 300000);
+
+            // return nothing; UI updated inside
+        }
+        async function nknFetchBlobStream(fullUrl, timeoutMs = 10 * 60 * 1000) {
+            const req = {
+                url: fullUrl,
+                method: 'GET',
+                headers: authHeaders({ 'X-Relay-Stream': 'chunks' }),
+                timeout_ms: timeoutMs
+            };
+
+            let contentType = 'application/octet-stream';
+            const parts = [];
+            let expected = 1;
+            const stash = new Map();
+
+            function flush() {
+                while (stash.has(expected)) {
+                    parts.push(stash.get(expected));
+                    stash.delete(expected);
+                    expected++;
+                }
+            }
+
+            await nknSendRelayStream(req, {
+                onBegin: (m) => {
+                    const h = m.headers || {};
+                    contentType = h['content-type'] || h['Content-Type'] || contentType;
+                    expected = 1;
+                    stash.clear();
+                },
+                onChunk: (bytes, seq) => {
+                    const s = (seq | 0) || 0;
+                    if (s === expected) {
+                        parts.push(bytes);
+                        expected++;
+                        flush();
+                    } else if (s > expected) {
+                        stash.set(s, bytes);
+                    }
+                    // (late/duplicate chunks are ignored)
+                },
+                onEnd: () => {
+                    // Promise only resolves once last_seq was reached (handled in nknSendRelayStream),
+                    // so at this point parts are fully ordered.
+                }
+            }, req.timeout_ms);
+
+            return new Blob(parts, { type: contentType });
+        }
 
 
-function stopStream(){
-  if (S.aborter) S.aborter.abort();
-  S.pcmQueue.length = 0; S.queuedSamples = 0;
-}
+        /* ========== BASIC CALLS (transport-aware) ========== */
+        async function callJSON(path, bodyObj, extraHeaders, timeoutMs) {
+            if (S.transport === 'nkn') {
+                return nknFetchJSON(path, 'POST', bodyObj || {}, authHeaders(extraHeaders || {}), timeoutMs ?? 45000);
+            }
+            // HTTP path with optional abort-after timeout
+            const ctrl = timeoutMs ? new AbortController() : null;
+            const t = timeoutMs ? setTimeout(() => ctrl.abort(), timeoutMs) : null;
+            try {
+                const res = await fetch(S.base.replace(/\/+$/, '') + path, {
+                    method: 'POST',
+                    headers: authHeaders(extraHeaders),
+                    body: JSON.stringify(bodyObj || {}),
+                    signal: ctrl ? ctrl.signal : undefined
+                });
+                if (!res.ok) throw new Error(`${res.status} ${res.statusText}`);
+                return res.json();
+            } finally {
+                if (t) clearTimeout(t);
+            }
+        }
 
-/* ========== PLAY ON SERVER ========== */
-async function doPlay(){
-  const text   = qs('playText').value.trim() || 'This plays on the server.';
-  const model  = qs('modelName').value.trim();
-  try {
-    const body = { text, mode:'play' };
-    if (model) body.model = model;
-    const data = await callJSON('/speak', body);
-    const log = qs('playLog'); log.style.display='block'; log.textContent=j(data);
-    toast('Sent to server speakers');
-  } catch(e){
-    const log = qs('playLog'); log.style.display='block'; log.textContent='Error: '+e.message;
-    toast('Server play failed', false);
-  }
-}
+        async function getJSON(path, extraHeaders) {
+            if (S.transport === 'nkn') {
+                return nknFetchJSON(path, 'GET', null, authHeaders(extraHeaders || {}));
+            }
+            const res = await fetch(S.base.replace(/\/+$/, '') + path, { headers: authHeaders(extraHeaders) });
+            if (!res.ok) throw new Error(`${res.status} ${res.statusText}`);
+            return res.json();
+        }
 
-/* ========== PULL VOICE ========== */
-async function doPull(){
-  const name = qs('pullName').value.trim();
-  const u1 = qs('pullOnnx').value.trim();
-  const u2 = qs('pullJson').value.trim();
-  if (!u1 || !u2) { toast('Provide ONNX + JSON URLs', false); return; }
-  try {
-    const body = { onnx_model_url: u1, onnx_json_url: u2 };
-    if (name) body.name = name;
-    const data = await callJSON('/models/pull', body);
-    qs('modelsBox').style.display='block';
-    qs('modelsBox').textContent = j(data);
-    toast('Voice pulled');
-    doModels();
-  } catch(e){
-    qs('modelsBox').style.display='block';
-    qs('modelsBox').textContent = 'Error: ' + e.message;
-    toast('Pull failed', false);
-  }
-}
+        /* ========== HEALTH & MODELS ========== */
+        async function doHealth() {
+            try {
+                const data = await getJSON('/health');
+                const hb = qs('healthBox');
+                hb.style.display = 'block';
+                hb.textContent = j(data);
+                const st = qs('status');
+                st.innerHTML = `<span class="dot ${data.status === 'ok' ? 'ok' : 'warn'}"></span><span>${data.piper === 'ready' ? 'Piper ready' : 'Piper missing'}</span>`;
+            } catch (e) {
+                qs('healthBox').style.display = 'block';
+                qs('healthBox').textContent = 'Error: ' + e.message;
+                toast('Health error', false);
+            }
+        }
+        async function doModels() {
+            try {
+                const data = await getJSON('/models');
+                const mb = qs('modelsBox');
+                mb.style.display = 'block';
+                mb.textContent = j(data);
+                const dl = qs('modelList'); dl.innerHTML = '';
+                (data.models || []).forEach(m => {
+                    const opt = document.createElement('option');
+                    opt.value = m.name || m.model || '';
+                    dl.appendChild(opt);
+                });
+                toast('Loaded models');
+            } catch (e) {
+                qs('modelsBox').style.display = 'block';
+                qs('modelsBox').textContent = 'Error: ' + e.message;
+                toast('Models error', false);
+            }
+        }
 
-/* ========== EXAMPLES ========== */
-function bindExamples(){
-  document.querySelectorAll('[data-example]').forEach(btn=>{
-    btn.addEventListener('click', ()=> {
-      const k = btn.getAttribute('data-example');
-      switch(k){
-        case 'hello-file':
-          qs('fileText').value = 'Hello from the TTS service!';
-          doFile(); break;
-        case 'hello-stream':
-          qs('streamText').value = 'Hello! This is a live stream test.';
-          S.transport === 'nkn' ? doStreamNKN() : doStreamHTTP();
-          break;
-        case 'lorem-file':
-          qs('fileText').value = 'Lorem ipsum dolor sit amet, consectetur adipiscing elit. Integer accumsan, sapien sit amet.';
-          doFile(); break;
-        case 'server-play':
-          qs('playText').value = 'This is a short server playback test.';
-          doPlay(); break;
-      }
-    });
-  });
-}
+        /* ========== AUTH: HANDSHAKE ========== */
+        async function doHandshake() {
+            if (!S.apiKey && !(S.sessionKey && S.sessionExp > now())) { toast('Enter API key first', false); return; }
+            try {
+                const data = await callJSON('/handshake', { api_key: S.apiKey });
+                S.sessionKey = data.session_key;
+                S.sessionExp = now() + (data.expires_in | 0);
+                localStorage.setItem('tts.sessionKey', S.sessionKey);
+                localStorage.setItem('tts.sessionExp', String(S.sessionExp));
+                updateSessInfo();
+                toast('Session established');
+            } catch (e) {
+                toast('Handshake failed', false);
+            }
+        }
+        function clearSession() {
+            S.sessionKey = ''; S.sessionExp = 0;
+            localStorage.removeItem('tts.sessionKey');
+            localStorage.removeItem('tts.sessionExp');
+            updateSessInfo();
+            toast('Session cleared');
+        }
+        async function doFile() {
+            const text = qs('fileText').value.trim() || 'Hello from the TTS service!';
+            const format = qs('fileFormat').value;
+            const volume = parseFloat(qs('fileVol').value || '1') || 1.0;
+            const model = qs('modelName').value.trim();
+            const LONG = 10 * 60 * 1000; // 10 minutes for long synths
 
-/* ========== INIT ========== */
-async function firstLoad(){
-  if (S.transport === 'nkn') {
-    try { await nknWaitReady(); } catch { /* ignore; UI shows connecting… */ }
-  }
-  doHealth().then(doModels).catch(()=>{});
-}
+            try {
+                const body = { text, mode: 'file', format, volume, ...(model ? { model } : {}) };
 
-function init(){
-  setInputsFromState();
-  reflectTransportUI();
+                // IMPORTANT: long timeout here
+                const data = await callJSON('/speak', body, undefined, LONG);
 
-  qs('saveSettings').addEventListener('click', saveSettings);
-  qs('handshakeBtn').addEventListener('click', doHandshake);
-  qs('clearSession').addEventListener('click', clearSession);
-  qs('checkHealth').addEventListener('click', doHealth);
-  qs('loadModels').addEventListener('click', doModels);
-  qs('fileGo').addEventListener('click', doFile);
-  qs('streamGo').addEventListener('click', ()=> S.transport==='nkn' ? doStreamNKN() : doStreamHTTP());
-  qs('streamStop').addEventListener('click', stopStream);
-  qs('playGo').addEventListener('click', doPlay);
-  qs('pullBtn').addEventListener('click', doPull);
+                const log = qs('fileLog'); log.style.display = 'block'; log.textContent = j(data);
+                const f = (data.files && data.files[0]) ? data.files[0] : null;
+                if (!f) { toast('No file returned', false); return; }
 
-  qs('transport').addEventListener('change', (e)=>{
-    S.transport = e.target.value; localStorage.setItem('tts.transport', S.transport); reflectTransportUI();
-    if (S.transport === 'nkn') nknEnsureClient();
-  });
-  qs('nknConnectBtn').addEventListener('click', ()=>{ nknEnsureClient(); });
-  qs('nknDisconnectBtn').addEventListener('click', ()=>{
-    try { S.nkn.client && S.nkn.client.close(); } catch {}
-    S.nkn.client=null; S.nkn.ready=false; reflectTransportUI();
-  });
+                const fileUrl = S.base.replace(/\/+$/, '') + (f.url || '');
+                let blob;
+                if (S.transport === 'nkn') {
+                    blob = await nknFetchBlobStream(fileUrl, LONG);
+                } else {
+                    const r = await fetch(fileUrl, { headers: authHeaders({}) });
+                    blob = await r.blob();
+                }
 
-  bindExamples();
-  if (S.transport === 'nkn') nknEnsureClient();
-  firstLoad();
-  qs('status').innerHTML = `<span class="dot ok"></span><span>Ready</span>`;
-}
-document.addEventListener('DOMContentLoaded', init);
-</script>
+                const objUrl = URL.createObjectURL(blob);
+                const a = qs('fileAudio'); a.src = objUrl; a.play().catch(() => { });
+                const dl = qs('fileDownload'); dl.href = objUrl; dl.download = f.filename || 'tts';
+                qs('fileMeta').textContent = `${blob.type} • ${(blob.size / 1024).toFixed(1)} KB`;
+                qs('fileResult').style.display = 'flex';
+                toast('File ready');
+            } catch (e) {
+                const log = qs('fileLog'); log.style.display = 'block'; log.textContent = 'Error: ' + e.message;
+                toast('File generation failed', false);
+            }
+        }
+
+        /* ========== STREAM MODE (RAW PCM → WebAudio) ========== */
+        function ensureAudioContext() {
+            if (S.ac) return S.ac;
+            try { S.ac = new (window.AudioContext || window.webkitAudioContext)({ sampleRate: S.targetPcmRate }); }
+            catch { S.ac = new (window.AudioContext || window.webkitAudioContext)(); }
+            const node = S.ac.createScriptProcessor(4096, 1, 1);
+            node.onaudioprocess = e => {
+                const out = e.outputBuffer.getChannelData(0);
+                if (!S.pcmQueue.length) { out.fill(0); return; }
+                let need = out.length, off = 0;
+                while (need > 0) {
+                    if (!S.pcmQueue.length) { out.fill(0, off); break; }
+                    const head = S.pcmQueue[0];
+                    const take = Math.min(need, head.length);
+                    out.set(head.subarray(0, take), off);
+                    if (take === head.length) S.pcmQueue.shift();
+                    else S.pcmQueue[0] = head.subarray(take);
+                    S.queuedSamples -= take; off += take; need -= take;
+                }
+                qs('bufInfo').textContent = S.queuedSamples.toString();
+            };
+            node.connect(S.ac.destination);
+            S.scriptNode = node;
+            qs('acInfo').textContent = `${S.ac.sampleRate} Hz`;
+            return S.ac;
+        }
+        function int16ToFloat32(int16) { const out = new Float32Array(int16.length); for (let i = 0; i < int16.length; i++) out[i] = Math.max(-1, Math.min(1, int16[i] / 32768)); return out; }
+        function resampleLinear(input, fromRate, toRate) {
+            if (fromRate === toRate) return input;
+            const ratio = toRate / fromRate; const newLen = Math.round(input.length * ratio);
+            const out = new Float32Array(newLen);
+            for (let i = 0; i < newLen; i++) { const pos = i / ratio; const i0 = Math.floor(pos); const i1 = Math.min(i0 + 1, input.length - 1); const frac = pos - i0; out[i] = input[i0] * (1 - frac) + input[i1] * frac; }
+            return out;
+        }
+        function enqueuePcmF32(f32) { S.pcmQueue.push(f32); S.queuedSamples += f32.length; qs('bufInfo').textContent = S.queuedSamples.toString(); }
+
+        async function doStreamHTTP() {
+            const text = qs('streamText').value.trim() || 'Streaming from the TTS service.';
+            const volume = parseFloat(qs('streamVol').value || '1') || 1.0;
+            let format = qs('streamFormat').value;
+            const model = qs('modelName').value.trim();
+            if (format !== 'raw') { format = 'raw'; qs('streamFormat').value = 'raw'; }
+            ensureAudioContext(); await S.ac.resume();
+            if (S.aborter) S.aborter.abort();
+            S.pcmQueue.length = 0; S.queuedSamples = 0;
+            const body = { text, mode: 'stream', format, volume }; if (model) body.model = model;
+            const ctrl = new AbortController(); S.aborter = ctrl;
+            const log = qs('streamLog'); log.style.display = 'block'; log.textContent = '(streaming)';
+            try {
+                const res = await fetch(S.base.replace(/\/+$/, '') + '/speak', {
+                    method: 'POST', headers: authHeaders({ 'Content-Type': 'application/json' }),
+                    body: JSON.stringify(body), signal: ctrl.signal
+                });
+                if (!res.ok || !res.body) throw new Error(`${res.status} ${res.statusText}`);
+                const reader = res.body.getReader(); S.reader = reader;
+                let leftover = new Uint8Array(0);
+                const targetRate = S.ac.sampleRate || S.targetPcmRate;
+                while (true) {
+                    const { value, done } = await reader.read();
+                    if (done) break; if (!value || !value.byteLength) continue;
+                    const buf = new Uint8Array(leftover.length + value.length);
+                    buf.set(leftover, 0); buf.set(value, leftover.length);
+                    const wholeFrames = Math.floor(buf.length / 2);
+                    const evenBytes = wholeFrames * 2;
+                    const bodyBytes = buf.subarray(0, evenBytes);
+                    leftover = buf.subarray(evenBytes);
+                    const view = new DataView(bodyBytes.buffer, bodyBytes.byteOffset, bodyBytes.byteLength);
+                    const int16 = new Int16Array(wholeFrames);
+                    for (let i = 0; i < wholeFrames; i++) int16[i] = view.getInt16(i * 2, true);
+                    let f32 = int16ToFloat32(int16);
+                    if (targetRate !== 22050) f32 = resampleLinear(f32, 22050, targetRate);
+                    enqueuePcmF32(f32);
+                }
+                log.textContent = '(stream ended)';
+                toast('Stream complete');
+            } catch (e) {
+                if (e.name !== 'AbortError') { log.textContent = 'Stream error: ' + e.message; toast('Stream error', false); }
+                else { log.textContent = '(stopped)'; }
+            } finally { S.reader = null; S.aborter = null; }
+        }
+
+        async function doStreamNKN() {
+            const text = qs('streamText').value.trim() || 'Streaming from the TTS service.';
+            const volume = parseFloat(qs('streamVol').value || '1') || 1.0;
+            const model = qs('modelName').value.trim();
+
+            ensureAudioContext(); await S.ac.resume();
+            S.pcmQueue.length = 0; S.queuedSamples = 0;
+
+            const log = qs('streamLog'); log.style.display = 'block'; log.textContent = '(requesting via relay, chunked)';
+            const req = {
+                url: S.base.replace(/\/+$/, '') + '/speak',
+                method: 'POST',
+                headers: authHeaders({ 'Content-Type': 'application/json', 'X-Relay-Stream': 'chunks' }),
+                json: { text, mode: 'stream', format: 'raw', volume, ...(model ? { model } : {}) },
+                timeout_ms: 120000
+            };
+
+            let leftover = new Uint8Array(0);
+            let expected = 1;
+            const buf = new Map();
+            let ended = false;
+            let lastSeq = null;
+
+            function int16ToFloat32(int16) { const out = new Float32Array(int16.length); for (let i = 0; i < int16.length; i++) out[i] = Math.max(-1, Math.min(1, int16[i] / 32768)); return out; }
+            function resampleLinear(input, fromRate, toRate) {
+                if (fromRate === toRate) return input;
+                const ratio = toRate / fromRate; const newLen = Math.round(input.length * ratio);
+                const out = new Float32Array(newLen);
+                for (let i = 0; i < newLen; i++) { const pos = i / ratio; const i0 = Math.floor(pos); const i1 = Math.min(i0 + 1, input.length - 1); const frac = pos - i0; out[i] = input[i0] * (1 - frac) + input[i1] * frac; }
+                return out;
+            }
+            function enqueuePcmF32(f32) { S.pcmQueue.push(f32); S.queuedSamples += f32.length; qs('bufInfo').textContent = S.queuedSamples.toString(); }
+
+            function handlePcmBytes(bytes) {
+                const merged = new Uint8Array(leftover.length + bytes.length);
+                merged.set(leftover, 0); merged.set(bytes, leftover.length);
+                const wholeFrames = Math.floor(merged.length / 2);
+                const evenBytes = wholeFrames * 2;
+                const bodyBytes = merged.subarray(0, evenBytes);
+                leftover = merged.subarray(evenBytes);
+
+                if (!evenBytes) return;
+                const view = new DataView(bodyBytes.buffer, bodyBytes.byteOffset, bodyBytes.byteLength);
+                const int16 = new Int16Array(wholeFrames);
+                for (let i = 0; i < wholeFrames; i++) int16[i] = view.getInt16(i * 2, true);
+
+                let f32 = int16ToFloat32(int16);
+                const targetRate = S.ac.sampleRate || S.targetPcmRate;
+                if (targetRate !== 22050) f32 = resampleLinear(f32, 22050, targetRate);
+                enqueuePcmF32(f32);
+            }
+
+            function flushInOrder() {
+                while (buf.has(expected)) {
+                    const bytes = buf.get(expected);
+                    buf.delete(expected);
+                    handlePcmBytes(bytes);
+                    expected++;
+                }
+                if (ended && lastSeq !== null && expected > lastSeq) {
+                    if (leftover.length) leftover = new Uint8Array(0);
+                    log.textContent = '(stream ended)';
+                    toast('Stream complete');
+                }
+            }
+
+            try {
+                await nknSendRelayStream(req, {
+                    onBegin: (m) => {
+                        leftover = new Uint8Array(0);
+                        expected = 1;
+                        buf.clear();
+                        ended = false;
+                        lastSeq = null;
+                        log.textContent = `(stream begin ${m.status || ''})`;
+                    },
+                    onChunk: (bytes, seq) => {
+                        buf.set(seq, bytes); flushInOrder();
+                    },
+                    onEnd: (m) => {
+                        ended = true;
+                        lastSeq = (typeof m.last_seq === 'number' && m.last_seq >= 0) ? m.last_seq : Math.max(0, ...buf.keys());
+                        flushInOrder();
+                    },
+                }, req.timeout_ms);
+            } catch (e) {
+                log.textContent = 'Stream error: ' + (e && e.message ? e.message : e);
+                toast('Stream error', false);
+            }
+        }
+
+        function stopStream() {
+            if (S.aborter) S.aborter.abort();
+            S.pcmQueue.length = 0; S.queuedSamples = 0;
+        }
+
+        /* ========== PLAY ON SERVER ========== */
+        async function doPlay() {
+            const text = qs('playText').value.trim() || 'This plays on the server.';
+            const model = qs('modelName').value.trim();
+            try {
+                const body = { text, mode: 'play' };
+                if (model) body.model = model;
+                const data = await callJSON('/speak', body);
+                const log = qs('playLog'); log.style.display = 'block'; log.textContent = j(data);
+                toast('Sent to server speakers');
+            } catch (e) {
+                const log = qs('playLog'); log.style.display = 'block'; log.textContent = 'Error: ' + e.message;
+                toast('Server play failed', false);
+            }
+        }
+
+        /* ========== PULL VOICE ========== */
+        async function doPull() {
+            const name = qs('pullName').value.trim();
+            const u1 = qs('pullOnnx').value.trim();
+            const u2 = qs('pullJson').value.trim();
+            if (!u1 || !u2) { toast('Provide ONNX + JSON URLs', false); return; }
+            try {
+                const body = { onnx_model_url: u1, onnx_json_url: u2 };
+                if (name) body.name = name;
+                const data = await callJSON('/models/pull', body);
+                qs('modelsBox').style.display = 'block';
+                qs('modelsBox').textContent = j(data);
+                toast('Voice pulled');
+                doModels();
+            } catch (e) {
+                qs('modelsBox').style.display = 'block';
+                qs('modelsBox').textContent = 'Error: ' + e.message;
+                toast('Pull failed', false);
+            }
+        }
+
+        /* ========== EXAMPLES ========== */
+        function bindExamples() {
+            document.querySelectorAll('[data-example]').forEach(btn => {
+                btn.addEventListener('click', () => {
+                    const k = btn.getAttribute('data-example');
+                    switch (k) {
+                        case 'hello-file':
+                            qs('fileText').value = 'Hello from the TTS service!';
+                            doFile(); break;
+                        case 'hello-stream':
+                            qs('streamText').value = 'Hello! This is a live stream test.';
+                            S.transport === 'nkn' ? doStreamNKN() : doStreamHTTP();
+                            break;
+                        case 'lorem-file':
+                            qs('fileText').value = 'Lorem ipsum dolor sit amet, consectetur adipiscing elit. Integer accumsan, sapien sit amet.';
+                            doFile(); break;
+                        case 'server-play':
+                            qs('playText').value = 'This is a short server playback test.';
+                            doPlay(); break;
+                    }
+                });
+            });
+        }
+
+        /* ========== INIT ========== */
+        function saveSettings() {
+            S.transport = qs('transport').value;
+            S.base = qs('baseUrl').value.trim() || S.base;
+            S.relayAddr = qs('relayAddr').value.trim();
+            S.apiKey = qs('apiKey').value.trim();
+            localStorage.setItem('tts.transport', S.transport);
+            localStorage.setItem('tts.base', S.base);
+            localStorage.setItem('tts.relayAddr', S.relayAddr);
+            localStorage.setItem('tts.apiKey', S.apiKey);
+            toast('Saved settings');
+            reflectTransportUI();
+            if (S.transport === 'nkn') nknEnsureClient();
+        }
+        function setInputsFromState() {
+            qs('transport').value = S.transport;
+            qs('baseUrl').value = S.base;
+            qs('relayAddr').value = S.relayAddr;
+            qs('apiKey').value = S.apiKey;
+            updateSessInfo();
+        }
+        async function firstLoad() {
+            if (S.transport === 'nkn') {
+                try { await nknWaitReady(); } catch { }
+            }
+            doHealth().then(doModels).catch(() => { });
+        }
+
+        function init() {
+            setInputsFromState();
+            reflectTransportUI();
+
+            qs('saveSettings').addEventListener('click', saveSettings);
+            qs('handshakeBtn').addEventListener('click', doHandshake);
+            qs('clearSession').addEventListener('click', clearSession);
+            qs('checkHealth').addEventListener('click', doHealth);
+            qs('loadModels').addEventListener('click', doModels);
+            qs('fileGo').addEventListener('click', doFile);
+            qs('streamGo').addEventListener('click', () => S.transport === 'nkn' ? doStreamNKN() : doStreamHTTP());
+            qs('streamStop').addEventListener('click', stopStream);
+            qs('playGo').addEventListener('click', doPlay);
+            qs('pullBtn').addEventListener('click', doPull);
+
+            qs('transport').addEventListener('change', (e) => {
+                S.transport = e.target.value; localStorage.setItem('tts.transport', S.transport); reflectTransportUI();
+                if (S.transport === 'nkn') nknEnsureClient();
+            });
+            qs('nknConnectBtn').addEventListener('click', () => { nknEnsureClient(); });
+            qs('nknDisconnectBtn').addEventListener('click', () => {
+                try { S.nkn.client && S.nkn.client.close(); } catch { }
+                S.nkn.client = null; S.nkn.ready = false; reflectTransportUI();
+            });
+
+            bindExamples();
+            if (S.transport === 'nkn') nknEnsureClient();
+            firstLoad();
+            qs('status').innerHTML = `<span class="dot ok"></span><span>Ready</span>`;
+        }
+        document.addEventListener('DOMContentLoaded', init);
+    </script>
 </body>
+
 </html>
