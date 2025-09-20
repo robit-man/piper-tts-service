@@ -260,8 +260,12 @@ WORKERS    = int(cfg.get("RELAY_WORKERS") or "4")
 MAX_BODY_B = int(cfg.get("RELAY_MAX_BODY_B") or str(1*1024*1024))
 VERIFY_DEF = (cfg.get("RELAY_VERIFY_DEFAULT") or "1").strip().lower() in ("1","true","yes","on")
 TARGETS    = {}
-CHUNK_RAW_B = 12 * 1024           # small raw bytes per DM (~16KB base64) for reliability
-HEARTBEAT_S = 10                  # keepalive ping interval (seconds) when idle
+CHUNK_RAW_B = int((cfg.get("RELAY_CHUNK_RAW_B") or "12288"))  # ~12 KiB raw per DM
+HEARTBEAT_S = 10
+
+DM_OPTS_STREAM = {"noReply": False, "maxHoldingSeconds": 120}
+DM_OPTS_SINGLE = {"noReply": True}
+
 try:
     TARGETS = json.loads(cfg.get("RELAY_TARGETS") or "{}")
 except Exception:
@@ -410,17 +414,15 @@ def _norm_event(ev: str) -> str:
         return "relay.info"
     return s
 
-DM_OPTS_STREAM = {"noReply": False, "maxHoldingSeconds": 120}  # ack'd DMs for reliability
+
 def _http_worker():
     s = requests.Session()
-    # Fallbacks in case these globals aren't defined elsewhere
     dm_opts_stream = globals().get("DM_OPTS_STREAM", {"noReply": False, "maxHoldingSeconds": 120})
     dm_opts_single = globals().get("DM_OPTS_SINGLE", {"noReply": True})
 
     while True:
         job = jobs.get()
         if job is None:
-            # Pair the get() even when asked to stop
             try: jobs.task_done()
             except: pass
             return
@@ -445,7 +447,6 @@ def _http_worker():
             if req.get("insecure_tls") in (True, "1", "true", "on"):
                 verify = False
 
-            # stream toggle
             sv = str(req.get("stream") or "").lower()
             if sv in ("1", "true", "yes", "on", "chunks", "dm"):
                 want_stream = True
@@ -462,15 +463,33 @@ def _http_worker():
                     kwargs["data"] = b""
 
             if want_stream:
-                # Streaming (chunked over DMs)
                 resp = s.request(method, url, stream=True, **kwargs)
                 hdrs = {k.lower(): v for k, v in resp.headers.items()}
+
+                # Derive filename for client convenience
+                filename = None
+                cd = resp.headers.get("Content-Disposition") or resp.headers.get("content-disposition") or ""
+                try:
+                    import re, urllib.parse
+                    m = re.search(r"filename\*=UTF-8''([^;]+)|filename=\"?([^\";]+)\"?", cd, re.I)
+                    if m: filename = urllib.parse.unquote(m.group(1) or m.group(2))
+                except Exception:
+                    filename = None
+
+                # Numeric content length if available
+                cl_raw = resp.headers.get("Content-Length") or resp.headers.get("content-length")
+                try:
+                    cl_num = int(cl_raw) if cl_raw is not None else None
+                except Exception:
+                    cl_num = None
 
                 _dm(src, {
                     "event": "relay.response.begin",
                     "id": rid, "ok": True,
                     "status": int(resp.status_code),
                     "headers": hdrs,
+                    "content_length": cl_num,     # 👈 new (optional)
+                    "filename": filename          # 👈 new (optional)
                 }, dm_opts_stream)
                 if DEBUG:
                     UI.log("OUT", to=src, status="begin", msg=f"id={rid}")
@@ -481,31 +500,19 @@ def _http_worker():
 
                 for chunk in resp.iter_content(chunk_size=CHUNK_RAW_B):
                     if not chunk:
-                        # heartbeat to keep relays happy if the origin stalls
                         if time.time() - last_send >= HEARTBEAT_S:
-                            _dm(src, {
-                                "event": "relay.response.keepalive",
-                                "id": rid, "ts": int(time.time()*1000)
-                            }, dm_opts_stream)
+                            _dm(src, {"event": "relay.response.keepalive", "id": rid, "ts": int(time.time()*1000)}, dm_opts_stream)
                             last_send = time.time()
                         continue
-
                     total += len(chunk)
                     seq += 1
-                    _dm(src, {
-                        "event": "relay.response.chunk",
-                        "id": rid, "seq": seq, "b64": _to_b64(chunk)
-                    }, dm_opts_stream)
+                    _dm(src, {"event": "relay.response.chunk", "id": rid, "seq": seq, "b64": _to_b64(chunk)}, dm_opts_stream)
                     last_send = time.time()
-
-                    # Light pacing reduces burstiness and reordering across hops
                     time.sleep(0.002)
 
-                # Include last_seq so the client knows when it's safe to finalize
                 _dm(src, {
                     "event": "relay.response.end",
-                    "id": rid,
-                    "ok": True,
+                    "id": rid, "ok": True,
                     "bytes": total,
                     "last_seq": seq,
                     "truncated": False,
@@ -513,9 +520,9 @@ def _http_worker():
                 }, dm_opts_stream)
                 if DEBUG:
                     UI.log("OUT", to=src, status="end", msg=f"id={rid} bytes={total} last_seq={seq}")
-                continue  # finally → task_done()
+                continue
 
-            # Non-stream (single DM) path
+            # --- single response (unchanged) ---
             resp = s.request(method, url, **kwargs)
             raw  = resp.content or b""
             truncated = False
@@ -540,40 +547,23 @@ def _http_worker():
             else:
                 payload["body_b64"] = _to_b64(raw)
 
-            # single-shot: ok to send noReply:true
             _dm(src, payload, dm_opts_single)
             if DEBUG:
                 UI.log("OUT", to=src, status=str(payload["status"]), msg=f"id={rid} truncated={truncated}")
 
         except Exception as e:
-            # Send the right error shape for the request mode
             if want_stream:
-                _dm(src, {
-                    "event": "relay.response.end",
-                    "id": rid, "ok": False,
-                    "bytes": 0, "last_seq": 0,
-                    "truncated": False,
-                    "error": f"{type(e).__name__}: {e}"
-                }, dm_opts_stream)
+                _dm(src, {"event": "relay.response.end", "id": rid, "ok": False,
+                          "bytes": 0, "last_seq": 0, "truncated": False, "error": f"{type(e).__name__}: {e}"}, dm_opts_stream)
             else:
-                _dm(src, {
-                    "event": "relay.response",
-                    "id": rid, "ok": False,
-                    "status": 0, "headers": {},
-                    "json": None, "body_b64": None,
-                    "truncated": False,
-                    "error": f"{type(e).__name__}: {e}"
-                }, dm_opts_single)
-
+                _dm(src, {"event": "relay.response", "id": rid, "ok": False,
+                          "status": 0, "headers": {}, "json": None, "body_b64": None,
+                          "truncated": False, "error": f"{type(e).__name__}: {e}"}, dm_opts_single)
             if DEBUG:
                 UI.log("ERR", to=src, msg=f"id={rid} {type(e).__name__}: {e}")
-
         finally:
-            # single, definitive task_done() pairing this jobs.get()
             try: jobs.task_done()
-            except ValueError:
-                # guard in case of accidental double-calls
-                pass
+            except ValueError: pass
 
 
 for _ in range(max(1, WORKERS)):
