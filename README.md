@@ -8,6 +8,10 @@ Run in terminal
 ```
 git clone --depth=1 https://github.com/robit-man/piper-tts-service.git && cd piper-tts-service/tts/ && python3 tts_service.py
 ```
+open a new terminal and [run the NKN relay.](https://github.com/robit-man/whisper-asr-service/blob/main/relay/asr_relay.py)
+
+Use the NKN address to expose the ASR endpoint to a hydra node
+
 Then, in another terminal, test with
 ```
 curl -s -X POST "http://127.0.0.1:8123/speak"   -H 'Content-Type: application/json'   -d '{"text":"Example streamed playback over system sink.","mode":"play"}' | jq
