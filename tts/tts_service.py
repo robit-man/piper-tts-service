@@ -2,7 +2,13 @@
 # -*- coding: utf-8 -*-
 """
 TTS Service (Piper) — single-file local network API
-(Concurrent + large-request safe)
+Upgrades:
+- Concurrency guard held for full synthesis lifetime, including streaming.
+- Single Piper subprocess per request (no per-chunk process thrash).
+- Optional per-IP rate limiting and queue timeout with 503/Retry-After.
+- Periodic output cleanup (TTL) to avoid disk fill.
+- /metrics endpoint for basic load signals.
+- Exported `app` for gunicorn; built-in server retained for convenience.
 """
 import os, sys, platform, shutil, subprocess, json, time, uuid, threading, re, math, ssl, socket
 from datetime import datetime, timedelta, timezone
@@ -52,7 +58,7 @@ def _pip(*pkgs):
 if not SETUP_MARKER.exists():
     print("[PROCESS] Installing Python dependencies…")
     _pip("--upgrade", "pip")
-    _pip("flask", "flask-cors", "numpy", "python-dotenv", "cryptography")
+    _pip("flask", "flask-cors", "numpy", "python-dotenv", "cryptography", "waitress")
     env_path = SCRIPT_DIR / ".env"
     if not env_path.exists():
         default_key = uuid.uuid4().hex
@@ -65,6 +71,10 @@ if not SETUP_MARKER.exists():
             "TTS_ALLOW_PULL=1\n"
             "TTS_FORCE_LOCAL=0\n"
             "TTS_MAX_CONCURRENCY=4\n"
+            "TTS_QUEUE_TIMEOUT_S=2.0\n"
+            "TTS_RATE_LIMIT_RPS=10\n"
+            "TTS_RATE_LIMIT_BURST=20\n"
+            "TTS_FILE_TTL_S=86400\n"
             "\n"
             "# HTTPS options: 0|1|generate|adhoc|mkcert\n"
             "TTS_SSL=0\n"
@@ -101,7 +111,7 @@ if not SETUP_MARKER.exists():
 # ─────────────────────────────────────────────────────────────────────────────
 # 2) Now load runtime deps & env
 # ─────────────────────────────────────────────────────────────────────────────
-from flask import Flask, request, send_from_directory, Response, jsonify
+from flask import Flask, request, send_from_directory, Response, jsonify, g
 from flask_cors import CORS
 import numpy as np
 from dotenv import load_dotenv
@@ -126,6 +136,10 @@ TTS_SESSION_TTL   = int(os.getenv("TTS_SESSION_TTL", "1800"))
 TTS_ALLOW_PULL    = os.getenv("TTS_ALLOW_PULL", "1") == "1"
 TTS_FORCE_LOCAL   = os.getenv("TTS_FORCE_LOCAL", "0") == "1"
 TTS_MAX_CONCURRENCY = max(1, int(os.getenv("TTS_MAX_CONCURRENCY", "4")))
+TTS_QUEUE_TIMEOUT_S = float(os.getenv("TTS_QUEUE_TIMEOUT_S", "2.0"))
+TTS_RATE_LIMIT_RPS  = max(1, int(os.getenv("TTS_RATE_LIMIT_RPS", "10")))
+TTS_RATE_LIMIT_BURST= max(1, int(os.getenv("TTS_RATE_LIMIT_BURST", "20")))
+TTS_FILE_TTL_S      = int(os.getenv("TTS_FILE_TTL_S", "86400"))
 
 # TLS env
 TTS_SSL_MODE_ENV  = os.getenv("TTS_SSL", "0").lower()
@@ -232,7 +246,7 @@ PIPER_EXE = _ensure_piper()
 _ensure_default_voice()
 
 # ─────────────────────────────────────────────────────────────────────────────
-# 4) HTTP server, auth, sessions, and TTS plumbing
+# 4) HTTP server, auth, sessions, rate limit, and TTS plumbing
 # ─────────────────────────────────────────────────────────────────────────────
 app = Flask(__name__)
 CORS(app, resources={r"/*": {"origins": "*"}},
@@ -266,36 +280,58 @@ _ensure_tools()
 _CONC_SEM = threading.Semaphore(TTS_MAX_CONCURRENCY)
 
 class _slot:
+    def __init__(self, timeout: float | None = None):
+        self.timeout = float(TTS_QUEUE_TIMEOUT_S if timeout is None else timeout)
+        self.acquired = False
     def __enter__(self):
-        _CONC_SEM.acquire()
+        self.acquired = _CONC_SEM.acquire(timeout=self.timeout)
+        if not self.acquired:
+            raise TimeoutError("tts at capacity")
     def __exit__(self, exc_type, exc, tb):
-        try: _CONC_SEM.release()
-        except: pass
+        if self.acquired:
+            try: _CONC_SEM.release()
+            except: pass
 
-# -------- Text splitting --------
+# Per-IP token bucket
+class _Bucket:
+    __slots__=("ts","tokens")
+    def __init__(self): self.ts=time.time(); self.tokens=float(TTS_RATE_LIMIT_BURST)
+_rlock = threading.Lock()
+_buckets: dict[str,_Bucket] = {}
+
+@app.before_request
+def _before_req():
+    ip = request.headers.get("X-Forwarded-For","").split(",")[0].strip() or request.remote_addr or "0.0.0.0"
+    now = time.time()
+    with _rlock:
+        b = _buckets.get(ip)
+        if b is None:
+            b=_Bucket(); _buckets[ip]=b
+        dt = max(0.0, now - b.ts); b.ts = now
+        b.tokens = min(float(TTS_RATE_LIMIT_BURST), b.tokens + dt*TTS_RATE_LIMIT_RPS)
+        if b.tokens < 1.0:
+            return jsonify({"error":"rate limit"}), 429, {"Retry-After":"1"}
+        b.tokens -= 1.0
+    g.client_ip = ip
+
+# -------- Text splitting (optional; not used for multiple Piper processes) --------
 _SENT_END = re.compile(r'([\.!?])')
-def _split_text(text: str, max_len: int = 500):
+def _split_text(text: str, max_len: int = 1500):
     emoji_pat = re.compile("[" "\U0001F600-\U0001F64F" "\U0001F300-\U0001F5FF" "\U0001F680-\U0001F6FF" "\U0001F1E0-\U0001F1FF" "]+", re.UNICODE)
     clean = emoji_pat.sub('', text).replace("*"," ").strip()
     if not clean: return []
-    paras = [p.strip() for p in re.split(r'\n\s*\n', clean) if p.strip()]
+    # keep large chunks to favor single Piper invocation
+    parts = re.split(r'\n\s*\n', clean)
     chunks = []
-    for para in paras:
-        parts = re.split(r'(?<=[\.!?])\s+|\n+', para)
-        buf = ""
-        for part in parts:
-            part = part.strip()
-            if not part: continue
-            if buf and len(buf)+1+len(part) > max_len:
-                chunks.append(buf); buf = ""
-            if len(part) <= max_len:
-                buf = (buf+" "+part).strip() if buf else part
-            else:
-                if buf: chunks.append(buf); buf = ""
-                for i in range(0, len(part), max_len):
-                    s = part[i:i+max_len].strip()
-                    if s: chunks.append(s)
-        if buf: chunks.append(buf)
+    for para in parts:
+        para = para.strip()
+        if not para: continue
+        if len(para) <= max_len:
+            chunks.append(para)
+        else:
+            for i in range(0, len(para), max_len):
+                s = para[i:i+max_len].strip()
+                if s: chunks.append(s)
     return chunks
 
 def _piper_cmd(json_path: str, onnx_path: str, debug=False):
@@ -333,38 +369,33 @@ def _play_pcm_stream(raw_iter):
             except: pass
             p.wait()
 
-def _generate_pcm_chunks(text: str, json_path: str, onnx_path: str, volume: float = 1.0):
-    """Yield raw PCM16 bytes in small blocks across natural sub-chunks."""
-    chunks = _split_text(text, max_len=500)
-    if not chunks: return
-    debug = False
-    for c in chunks:
-        cmd = _piper_cmd(json_path, onnx_path, debug=debug)
-        payload = json.dumps({"text": c, "config": json_path, "model": onnx_path}).encode("utf-8")
-        p = subprocess.Popen(cmd, stdin=subprocess.PIPE, stdout=subprocess.PIPE,
-                             stderr=(subprocess.PIPE if debug else subprocess.DEVNULL), bufsize=0)
-        try:
-            p.stdin.write(payload); p.stdin.close()
-            while True:
-                raw = p.stdout.read(4096)
-                if not raw: break
-                if volume is not None and abs(volume-1.0) > 1e-3:
-                    arr = np.frombuffer(raw, dtype=np.int16).astype(np.float32) * float(volume)
-                    raw = np.clip(arr, -32768, 32767).astype(np.int16).tobytes()
-                yield raw
-        finally:
-            try:
-                if debug and p.stderr:
-                    err = p.stderr.read().decode(errors="ignore").strip()
-                    if err: log(f"[Piper STDERR] {err}", "WARNING")
+def _synthesize_one(text: str, json_path: str, onnx_path: str, volume: float = 1.0):
+    """Yield raw PCM16 bytes for the whole request using a single Piper process."""
+    text = (text or "").strip()
+    if not text:
+        return
+    # Optionally split for very large inputs but reuse one process if possible.
+    payload_text = "\n\n".join(_split_text(text, max_len=1500)) or text
+    payload = json.dumps({"text": payload_text, "config": json_path, "model": onnx_path}).encode("utf-8")
+    cmd = _piper_cmd(json_path, onnx_path, debug=False)
+    p = subprocess.Popen(cmd, stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, bufsize=0)
+    try:
+        p.stdin.write(payload); p.stdin.close()
+        while True:
+            raw = p.stdout.read(4096)
+            if not raw: break
+            if volume is not None and abs(volume-1.0) > 1e-3:
+                arr = np.frombuffer(raw, dtype=np.int16).astype(np.float32) * float(volume)
+                raw = np.clip(arr, -32768, 32767).astype(np.int16).tobytes()
+            yield raw
+    finally:
+        try: p.wait(timeout=5)
+        except: 
+            try: p.kill()
             except: pass
-            try: p.wait(timeout=5)
-            except: 
-                try: p.kill()
-                except: pass
 
 def _pcm_to_file(pcm_iter, out_path: Path, fmt="ogg"):
-    """Encode PCM to a file without deadlocking: pump stdin concurrently with reading stdout."""
+    """Encode PCM to a file without deadlocking."""
     fmt = (fmt or "ogg").lower()
     if fmt == "raw":
         with open(out_path, "wb") as f:
@@ -373,7 +404,6 @@ def _pcm_to_file(pcm_iter, out_path: Path, fmt="ogg"):
         return
     cmd, _ctype = _encode_cmd(fmt)
     p2 = subprocess.Popen(cmd, stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, bufsize=0)
-    stop = threading.Event()
 
     def feeder():
         try:
@@ -413,6 +443,21 @@ def health():
         return jsonify({"status":"ok","piper":"ready" if ready else "missing","voices":models})
     except Exception as e:
         return jsonify({"status":"error","message":str(e)}), 500
+
+@app.route("/metrics", methods=["GET"])
+def metrics():
+    # Expose approximate queue depth and concurrency availability
+    try:
+        # Python Semaphore has no official way to inspect; approximate via non-blocking acquire.
+        free = 0
+        probes = 0
+        while _CONC_SEM.acquire(blocking=False):
+            free += 1; probes += 1
+        for _ in range(probes):
+            _CONC_SEM.release()
+        return jsonify({"ok":True, "concurrency_free": free, "concurrency_max": TTS_MAX_CONCURRENCY})
+    except Exception as e:
+        return jsonify({"ok":False, "error":str(e)}), 500
 
 @app.route("/models", methods=["GET"])
 def models():
@@ -465,107 +510,108 @@ def files(filename):
     except Exception as e:
         return jsonify({"error":str(e)}), 404
 
+def _stream_with_slot_encoded(pcm_iter, fmt):
+    enc_cmd, ctype = _encode_cmd(fmt)
+    if enc_cmd is None:
+        def gen_raw():
+            with _slot():
+                try:
+                    for b in pcm_iter:
+                        if not b: break
+                        yield b
+                except GeneratorExit:
+                    return
+        return Response(gen_raw(), mimetype="audio/L16")
+    def gen_encoded():
+        with _slot():
+            p = subprocess.Popen(enc_cmd, stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, bufsize=0)
+            try:
+                def feeder():
+                    try:
+                        for b in pcm_iter:
+                            if not b: break
+                            p.stdin.write(b)
+                    except Exception:
+                        pass
+                    finally:
+                        try: p.stdin.close()
+                        except: pass
+                t = threading.Thread(target=feeder, daemon=True); t.start()
+                while True:
+                    o = p.stdout.read(4096)
+                    if not o: break
+                    yield o
+                t.join()
+            except GeneratorExit:
+                try: p.kill()
+                except: pass
+                return
+            finally:
+                try: p.wait(timeout=2)
+                except: pass
+    return Response(gen_encoded(), mimetype=ctype)
+
 @app.route("/speak", methods=["POST"])
 def speak():
     if not _auth_ok(request): return jsonify({"error":"unauthorized"}), 401
-    with _slot():  # limit concurrent heavy work
-        try:
-            data = request.get_json(force=True, silent=True) or {}
-            text   = (data.get("text") or "").strip()
-            if not text: return jsonify({"error":"text is required"}), 400
-            model  = (data.get("model") or "").strip() or None
-            mode   = (data.get("mode")  or "file").strip().lower()
-            fmt    = (data.get("format") or "ogg").strip().lower()
-            volume = float(data.get("volume", 1.0))
-            split  = (data.get("split") or "auto").strip().lower()
+    try:
+        data = request.get_json(force=True, silent=True) or {}
+        text   = (data.get("text") or "").strip()
+        if not text: return jsonify({"error":"text is required"}), 400
+        model  = (data.get("model") or "").strip() or None
+        mode   = (data.get("mode")  or "file").strip().lower()
+        fmt    = (data.get("format") or "ogg").strip().lower()
+        volume = float(data.get("volume", 1.0))
+        onnx_path, json_path = _resolve_model(model)
 
-            onnx_path, json_path = _resolve_model(model)
+        pcm_iter = _synthesize_one(text, json_path, onnx_path, volume=volume)
 
-            if split == "none":
-                def one_chunk():
-                    cmd = _piper_cmd(json_path, onnx_path, debug=False)
-                    payload = json.dumps({"text": text, "config": json_path, "model": onnx_path}).encode("utf-8")
-                    p = subprocess.Popen(cmd, stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, bufsize=0)
-                    try:
-                        p.stdin.write(payload); p.stdin.close()
-                        while True:
-                            raw = p.stdout.read(4096)
-                            if not raw: break
-                            if abs(volume-1.0) > 1e-3:
-                                arr = np.frombuffer(raw, dtype=np.int16).astype(np.float32) * volume
-                                raw = np.clip(arr, -32768, 32767).astype(np.int16).tobytes()
-                            yield raw
-                    finally:
-                        try: p.wait(timeout=5)
-                        except: 
-                            try: p.kill()
-                            except: pass
-                pcm_iter = one_chunk(); chunk_count = 1
-            else:
-                pcm_iter = _generate_pcm_chunks(text, json_path, onnx_path, volume=volume)
-                chunk_count = len(_split_text(text, max_len=500))
-
-            if mode == "file":
-                OUT_DIR.mkdir(parents=True, exist_ok=True)
-                ext = {"ogg":".ogg","wav":".wav","raw":".raw"}.get(fmt, ".ogg")
-                fname = f"{uuid.uuid4().hex}{ext}"
-                out_path = OUT_DIR / fname
+        if mode == "file":
+            OUT_DIR.mkdir(parents=True, exist_ok=True)
+            ext = {"ogg":".ogg","wav":".wav","raw":".raw"}.get(fmt, ".ogg")
+            fname = f"{uuid.uuid4().hex}{ext}"
+            out_path = OUT_DIR / fname
+            with _slot():  # hold slot until encode to file completes
                 _pcm_to_file(pcm_iter, out_path, fmt=fmt)
-                url = f"/files/{fname}"
-                return jsonify({"ok":True,"files":[{"filename":fname,"url":url,"path":str(out_path)}], "chunks":chunk_count})
+            url = f"/files/{fname}"
+            return jsonify({"ok":True,"files":[{"filename":fname,"url":url,"path":str(out_path)}]})
 
-            elif mode == "play":
+        elif mode == "play":
+            with _slot():
                 _play_pcm_stream(pcm_iter)
-                return jsonify({"ok":True,"played_chunks":chunk_count})
+            return jsonify({"ok":True})
 
-            elif mode == "stream":
-                enc_cmd, ctype = _encode_cmd(fmt)
-                if enc_cmd is None:
-                    def gen_raw():
-                        try:
-                            for b in pcm_iter:
-                                if not b: break
-                                yield b
-                        except GeneratorExit: return
-                    return Response(gen_raw(), mimetype="audio/L16")
+        elif mode == "stream":
+            return _stream_with_slot_encoded(pcm_iter, fmt)
 
-                def gen_encoded():
-                    p = subprocess.Popen(enc_cmd, stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, bufsize=0)
-                    try:
-                        def feeder():
-                            try:
-                                for b in pcm_iter:
-                                    if not b: break
-                                    p.stdin.write(b)
-                            except Exception:
-                                pass
-                            finally:
-                                try: p.stdin.close()
-                                except: pass
-                        t = threading.Thread(target=feeder, daemon=True); t.start()
-                        while True:
-                            o = p.stdout.read(4096)
-                            if not o: break
-                            yield o
-                        t.join()
-                    except GeneratorExit:
-                        try: p.kill()
-                        except: pass
-                        return
-                    finally:
-                        try: p.wait(timeout=2)
-                        except: pass
-                return Response(gen_encoded(), mimetype=ctype)
-            else:
-                return jsonify({"error":"mode must be one of: file, play, stream"}), 400
+        else:
+            return jsonify({"error":"mode must be one of: file, play, stream"}), 400
 
-        except Exception as e:
-            log(f"/speak error: {e}", "ERROR")
-            return jsonify({"error":str(e)}), 500
+    except TimeoutError:
+        return jsonify({"error":"capacity"}), 503, {"Retry-After":"2"}
+    except Exception as e:
+        log(f"/speak error: {e}", "ERROR")
+        return jsonify({"error":str(e)}), 500
 
 # ─────────────────────────────────────────────────────────────────────────────
-# 6) TLS helpers + Serve (TLS optional + LAN FORCE + PORT AUTO + GRACEFUL)
+# 6) TTL cleanup, TLS helpers + Serve (TLS optional)
 # ─────────────────────────────────────────────────────────────────────────────
+def _cleanup_loop():
+    while True:
+        try:
+            cutoff = time.time() - float(TTS_FILE_TTL_S)
+            for p in OUT_DIR.glob("*"):
+                try:
+                    if p.is_file() and p.stat().st_mtime < cutoff:
+                        p.unlink()
+                except Exception:
+                    pass
+        except Exception:
+            pass
+        time.sleep(600)  # every 10 min
+
+threading.Thread(target=_cleanup_loop, daemon=True, name="tts-cleanup").start()
+
 from werkzeug.serving import make_server, generate_adhoc_ssl_context
 import atexit, signal
 
@@ -673,7 +719,6 @@ from werkzeug.serving import BaseWSGIServer
 class _ServerThread(threading.Thread):
     def __init__(self, app, host, port, ssl_context=None):
         super().__init__(daemon=True)
-        # Prefer threaded server; fall back gracefully if older Werkzeug
         try:
             self._srv: BaseWSGIServer = make_server(host, port, app, threaded=True, ssl_context=ssl_context)  # type: ignore
             log("Werkzeug: threaded server enabled", "INFO")
@@ -720,10 +765,18 @@ def _start_server():
         TTS_BIND = "0.0.0.0"
     ssl_ctx, scheme = _build_ssl_context()
     actual_port = _find_free_port(TTS_BIND, TTS_PORT, tries=100)
-    _server_thread = _ServerThread(app, TTS_BIND, actual_port, ssl_context=ssl_ctx)
-    _server_thread.start()
-    _print_startup(actual_port, scheme)
-    return actual_port
+    # Prefer production WSGI when executed directly
+    try:
+        from waitress import serve as _serve
+        threading.Thread(target=lambda: _serve(app, host=TTS_BIND, port=actual_port, threads=max(8, TTS_MAX_CONCURRENCY*4)), daemon=True).start()
+        _print_startup(actual_port, scheme)
+        return actual_port
+    except Exception as e:
+        log(f"waitress failed ({e}); falling back to Werkzeug.", "WARNING")
+        _server_thread = _ServerThread(app, TTS_BIND, actual_port, ssl_context=ssl_ctx)
+        _server_thread.start()
+        _print_startup(actual_port, scheme)
+        return actual_port
 
 def _graceful_exit(signum=None, frame=None):
     import signal as _sig
@@ -740,6 +793,9 @@ atexit.register(_graceful_exit)
 _sig.signal(_sig.SIGINT,  _graceful_exit)
 _sig.signal(_sig.SIGTERM, _graceful_exit)
 if hasattr(_sig, "SIGTSTP"): _sig.signal(_sig.SIGTSTP, _graceful_exit)
+
+def create_app():
+    return app
 
 if __name__ == "__main__":
     _start_server()
